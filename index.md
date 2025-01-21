@@ -1,6 +1,7 @@
 ---
 title: Home-title
 layout: home
+nav_order: 1
 ---
 
 This is my test.
