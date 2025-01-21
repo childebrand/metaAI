@@ -1,5 +1,6 @@
 ---
 title: Data
+layout: home
 nav_order: 2
 ---
 
