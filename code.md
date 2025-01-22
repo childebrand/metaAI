@@ -4,7 +4,7 @@ nav_order: 4
 layout: home
 ---
 
-# Download Meta Analysis R Code
+# Download Meta-Analysis R Code
 
 This repository contains the complete R Markdown file used for our meta-analysis on AI resistance across markets. The file includes all data preprocessing steps, effect size calculations, and visualizations presented in the paper.
 
