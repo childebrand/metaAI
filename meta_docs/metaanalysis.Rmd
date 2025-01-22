@@ -1,0 +1,3360 @@
+---
+title: "Meta Analysis Algorithm Aversion"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+---
+```{r, preparations, include = FALSE, fig.align="center"}
+## Prepare Workspace ####
+# Turn Off Scientific Notations
+options(scipen=999)
+
+# # Load the Required Libraries
+# install.packages("haven")
+# install.packages("readxl")
+# install.packages("psych")
+# install.packages("irr")
+# install.packages("ICC")
+# install.packages("metafor")
+# install.packages("effectsize")
+
+library(dplyr)
+library(tidyr)
+library(haven)
+library(readxl)
+library(psych)
+library(irr)
+library(ICC)
+library(metafor)
+library(effectsize)
+library(ggplot2)
+library(ggpubr)
+library(gridExtra)
+library("xtable")
+
+# Clean and Set Working Directory
+rm(list=ls())
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+
+## Read Datafile ####
+library(xlsx)
+meta_data <- read.xlsx("data.xlsx", sheetIndex = 1, startRow = 4)
+
+## Data Preparations ####
+# cohens_d transformation
+meta_data$cohens_d <- ifelse((meta_data$aversion==1), (meta_data$cohens_d*-1), meta_data$cohens_d)
+meta_data$cohens_d <- as.numeric(meta_data$cohens_d)
+meta_data$cohens_d
+
+# n transformation
+meta_data$relevant_n <- as.numeric(as.character(meta_data$relevant_n))
+meta_data$n <- meta_data$relevant_n
+meta_data$n
+
+meta_data$focus_n2 <- as.numeric(as.character(meta_data$focus_n2))
+meta_data$focus_n2
+
+meta_data$focus_n1 <- as.numeric(as.character(meta_data$focus_n1))
+meta_data$focus_n1
+
+# study_no transformation
+meta_data$study_no <- as.character(meta_data$study_no)
+meta_data$study_no
+
+# assignment of article ids
+meta_data <- transform(meta_data, id=match(authors_short, unique(authors_short)))
+meta_data <- meta_data %>% 
+        rename(article_id = id)
+
+# creation of study identifier
+meta_data$study_id <- paste(meta_data$article_id, meta_data$study_no, sep = "-")
+
+# severity
+meta_data$severity <- factor(meta_data$severity, levels = c("low", "medium", "high"))
+ 
+# missing data
+meta_data[meta_data == "not provided" ] <- NA
+meta_data[meta_data == "not applicable" ] <- NA
+ 
+# transformations
+meta_data$pubyear <- as.numeric(as.character(meta_data$pubyear))
+meta_data$m_age <- as.numeric(as.character(meta_data$m_age))
+meta_data$percntg_females <- as.numeric(as.character(meta_data$percntg_females))
+
+# compute Effect Size Variances
+meta_data$var_d <- 1 / meta_data$n + (meta_data$cohens_d*meta_data$cohens_d)/(2*meta_data$n)
+meta_data$var_d
+```
+
+# General Notes on Meta Analyses
+* A Meta-analysis is the statistical combination of results from two or more separate studies.
+* Potential advantages of meta-analyses include:
+  * Improved precision. Many studies are too small to provide convincing evidence about intervention effects in isolation. Estimation is usually improved when it is based on more information.
+  * Answering questions not posed by individual studies. Primary studies often involve a specific type of participant and explicitly defined interventions. A selection of studies in which these characteristics differ can allow investigation of the consistency of effect across a wider range of populations and interventions. It may also, if relevant, allow reasons for differences in effect estimates to be investigated.
+  * Settlement of controversies arising from apparently conflicting studies or to generate new hypotheses. Statistical synthesis of findings allows the degree of conflict to be formally assessed, and reasons for different results to be explored and quantified.
+
+# General Descriptives
+## 0. General Info
+```{r metasample, echo=TRUE}
+# Number of unique articles
+length(unique(meta_data$authors_short))
+
+# Number of effect sizes
+dim(meta_data)
+
+# Meta sample size
+sum(meta_data$n)
+summary(meta_data$n)
+
+# Average group size human condition
+summary(meta_data$focus_n1)
+
+# Average group size machine condition
+summary(meta_data$focus_n2)
+
+summary(meta_data$m_age)
+sd(meta_data$m_age, na.rm = TRUE)
+summary(meta_data$percntg_females)
+sd(meta_data$percntg_females, na.rm = TRUE)
+```
+
+## 1. Publication Details
+### Number of Effect Sizes by Authors
+```{r s_by_authors_I, include=FALSE}
+authors_plotdata <- meta_data %>%
+        group_by(authors_short) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+authors_plotdata$authors_short <- as.factor(authors_plotdata$authors_short)
+plot_by_authors <- ggplot(authors_plotdata, aes(x = reorder(authors_short, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, hjust = -0.1))+
+        coord_flip()+
+        theme_bw()+
+        labs(x = "", y ="")
+```
+
+```{r s_by_authors_II, echo=TRUE, fig.height=10, fig.width=10, fig.align="center"}
+plot_by_authors
+```
+
+### Number of Effect Sizes by Outlets
+```{r s_by_outlets_I, include=FALSE}
+outlets_plotdata <- meta_data %>%
+        group_by(outlet) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+outlets_plotdata$outlet <- as.factor(outlets_plotdata$outlet)
+plot_by_outlets <- ggplot(outlets_plotdata, aes(x = reorder(outlet, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, hjust = -0.1))+
+        coord_flip()+
+        theme_bw()+
+        labs(x = "", y ="")
+```
+
+```{r s_by_outlets_II, echo=TRUE, fig.height=10, fig.width=10, fig.align="center"}
+plot_by_outlets
+```
+
+### Number of Effect Sizes by Discipline
+```{r s_by_discipline_I, include=FALSE}
+discipline_plotdata <- meta_data %>%
+        group_by(discipline) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+discipline_plotdata$discipline <- as.factor(discipline_plotdata$discipline)
+plot_by_discipline <- ggplot(discipline_plotdata, aes(x = reorder(discipline, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, hjust = -0.3))+
+        coord_flip()+
+        theme_bw()+
+        labs(x = "", y ="")
+```
+
+```{r s_by_discipline_II, echo=TRUE, fig.align="center"}
+discipline_plotdata
+plot_by_discipline
+```
+
+### Number of Effect Sizes by Outlets and Discipline
+```{r s_by_oudiscipline_I, include=FALSE}
+disciplineou_plotdata <- meta_data %>%
+        group_by(discipline, outlet) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+disciplineou_plotdata$discipline <- as.factor(disciplineou_plotdata$discipline)
+disciplineou_plotdata$outlet <- as.factor(disciplineou_plotdata$outlet)
+plot_by_disciplineou <- ggplot(disciplineou_plotdata, aes(reorder(outlet, n), y = n, fill = discipline))+
+  geom_bar(stat = "identity", position = "dodge")+
+  coord_flip()+
+  geom_text(aes(label = n, hjust = -0.1), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme(legend.title = element_blank())
+```
+
+```{r s_by_oudiscipline_II, echo=TRUE, fig.align="center", fig.height=7.5, fig.width=10, fig.align="center"}
+disciplineou_plotdata
+plot_by_disciplineou
+```
+
+### Number of Effect Sizes by Publication Year
+```{r s_by_year_I, include=FALSE}
+pubyear_plotdata <- meta_data %>%
+        group_by(pubyear) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pubyear))
+
+pubyear_plotdata$pubyear <- as.factor(pubyear_plotdata$pubyear)
+plot_by_pubyear <- ggplot(pubyear_plotdata, aes(x = pubyear, y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")
+```
+
+```{r s_by_year_II, echo=TRUE, fig.height=10, fig.width=10, fig.align="center"}
+pubyear_plotdata
+plot_by_pubyear
+```
+
+### Number of Effect Sizes by Publication Type
+```{r s_by_pubtype_I, include=FALSE}
+pubtype_plotdata <- meta_data %>%
+        group_by(pubtype) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+pubtype_plotdata$pubtype <- as.factor(pubtype_plotdata$pubtype)
+plot_by_pubtype <- ggplot(pubtype_plotdata, aes(x = reorder(pubtype, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")
+```
+
+```{r s_by_pubtype_II, echo=TRUE, fig.align="center"}
+pubtype_plotdata
+plot_by_pubtype
+```
+
+### Number of Effect Sizes by Publication Status
+```{r s_by_published_I, include=FALSE}
+published_plotdata <- meta_data %>%
+        group_by(published) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+published_plotdata$published <- as.factor(published_plotdata$published)
+plot_by_published <- ggplot(published_plotdata, aes(x = reorder(published, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")
+```
+
+```{r s_by_published_II, echo=TRUE, fig.align="center"}
+published_plotdata
+plot_by_published
+```
+
+### Aversion: No (0) versus Yes (1)
+```{r aversion, include=FALSE}
+aversion_plotdata <- meta_data %>%
+        group_by(aversion) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+aversion_plotdata$aversion <- as.factor(aversion_plotdata$aversion)
+plot_by_aversion <- ggplot(aversion_plotdata, aes(x = reorder(aversion, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")
+```
+
+```{r s_by_aversion_II, echo=TRUE, fig.align="center"}
+aversion_plotdata
+plot_by_aversion
+```
+
+## 3. Method Details
+```{r s_by_within_subject_I, include=FALSE}
+### Within-Subject Design
+within_subject_plotdata <- meta_data %>%
+        group_by(within_subject) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+within_subject_plotdata$within_subject <- as.factor(within_subject_plotdata$within_subject)
+plot_by_within_subject <- ggplot(within_subject_plotdata, aes(x = within_subject, y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("Within-Subject Design")
+```
+
+```{r s_by_within_subject_II, include=FALSE}
+within_subject_plotdata
+plot_by_within_subject
+```
+
+```{r s_by_random_I, include=FALSE}
+# Variable is taken out because coding was faulty (random was coded as yes only when randomization was explicitly stated, however, it is commonly used)
+# ### Presence of Randomization
+# random_plotdata <- meta_data %>%
+#         group_by(random) %>%
+#         dplyr::summarize(n = n()) %>% 
+#         dplyr::mutate(pct = n/sum(n),
+#                       lbl = scales::percent(pct)) %>% 
+#         arrange(desc(pct))
+# 
+# random_plotdata$random <- as.factor(random_plotdata$random)
+# plot_by_random <- ggplot(random_plotdata, aes(x = reorder(random, n), y = n)) +
+#         geom_bar(stat = "identity")+
+#         geom_text(aes(label = n, vjust = -0.3))+
+#         theme_bw()+
+#         labs(x = "", y ="")+
+#         ggtitle("Presence of Randomization")
+```
+
+```{r s_by_random_II, include=FALSE}
+# plot_by_random
+```
+
+```{r s_by_field_I, include=FALSE}
+### Field Study
+field_plotdata <- meta_data %>%
+        group_by(field) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+field_plotdata$field <- as.factor(field_plotdata$field)
+plot_by_field <- ggplot(field_plotdata, aes(x = field, y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("Field Study")
+```
+
+```{r s_by_field_II, include=FALSE}
+field_plotdata
+plot_by_field
+```
+
+```{r s_by_dv_cat_I, include=FALSE}
+### DV Category
+dv_cat_plotdata <- meta_data %>%
+        group_by(dv_cat) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+dv_cat_plotdata$dv_cat <- as.factor(dv_cat_plotdata$dv_cat)
+plot_by_dv_cat <- ggplot(dv_cat_plotdata, aes(x = reorder(dv_cat, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("DV Category")
+
+```
+
+```{r s_by_sp, include=FALSE}
+### Subjective Perception
+subjective_perception_plot_data <- meta_data %>%
+        group_by(subjective_perception) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+subjective_perception_plot_data$subjective_perception <- as.factor(subjective_perception_plot_data$subjective_perception)
+plot_by_subjective_perception <- ggplot(subjective_perception_plot_data, aes(x = reorder(subjective_perception, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("Subjective Perception DV")
+```
+
+```{r s_by_sp_II, include=FALSE}
+subjective_perception_plot_data
+plot_by_subjective_perception
+```
+
+```{r s_by_dv_scaling_I, include=FALSE}
+### DV Scaling
+dv_scaling_plotdata <- meta_data %>%
+        group_by(dv_scaling) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+dv_scaling_plotdata$dv_scaling <- as.factor(dv_scaling_plotdata$dv_scaling)
+plot_by_dv_scaling <- ggplot(dv_scaling_plotdata, aes(x = reorder(dv_scaling, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("DV Scaling")
+
+```
+
+```{r s_by_dv_scaling_II, include=FALSE}
+dv_scaling_plotdata
+plot_by_dv_scaling
+```
+
+```{r s_by_dv_measurement_type_I, include=FALSE}
+### DV Measurement Type
+dv_measurement_type_plotdata <- meta_data %>%
+        group_by(dv_measurement_type) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+dv_measurement_type_plotdata$dv_measurement_type <- as.factor(dv_measurement_type_plotdata$dv_measurement_type)
+plot_by_dv_measurement_type <- ggplot(dv_measurement_type_plotdata, aes(x = reorder(dv_measurement_type, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("DV Measurement Type")
+
+```
+
+```{r s_by_dv_measurement_type_II, include=FALSE}
+dv_measurement_type_plotdata
+plot_by_dv_measurement_type
+```
+
+```{r s_by_compensation_I, include=FALSE}
+### Compensation
+algorithm_dummy_plotdata <- meta_data %>%
+        group_by(compensation) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+algorithm_dummy_plotdata$compensation <- as.factor(algorithm_dummy_plotdata$compensation)
+plot_by_compensation <- ggplot(algorithm_dummy_plotdata, aes(x = reorder(compensation, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("Compensation")
+
+```
+
+```{r s_by_compensation_II, include=FALSE}
+algorithm_dummy_plotdata
+plot_by_compensation
+```
+
+```{r s_by_incentive_compatible_I, include=FALSE}
+### Incentive Compatibility
+algorithm_dummy_plotdata <- meta_data %>%
+        group_by(incentive_compatible) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+algorithm_dummy_plotdata$incentive_compatible <- as.factor(algorithm_dummy_plotdata$incentive_compatible)
+plot_by_incentive_compatible <- ggplot(algorithm_dummy_plotdata, aes(x = incentive_compatible, y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("Incentive Compatibility")
+
+```
+
+```{r s_by_incentive_compatible_II, include=FALSE}
+algorithm_dummy_plotdata
+plot_by_incentive_compatible
+```
+
+```{r s_by_preregistered_I, include=FALSE}
+### Preregistration
+algorithm_dummy_plotdata <- meta_data %>%
+        group_by(preregistered) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+algorithm_dummy_plotdata$preregistered <- as.factor(algorithm_dummy_plotdata$preregistered)
+plot_by_preregistered <- ggplot(algorithm_dummy_plotdata, aes(x = preregistered, y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("Preregistration")
+
+```
+
+```{r s_by_preregistered_II, include=FALSE}
+algorithm_dummy_plotdata
+plot_by_preregistered
+```
+
+```{r, include=FALSE}
+plist_1 <- list(plot_by_within_subject, plot_by_field, plot_by_dv_cat, plot_by_subjective_perception, plot_by_dv_scaling, plot_by_dv_measurement_type, plot_by_compensation, plot_by_incentive_compatible, plot_by_preregistered)
+```
+
+```{r, grid, echo = TRUE, fig.height=22, fig.width=10}
+do.call("grid.arrange", c(plist_1, ncol = 2))
+```
+
+## 4. Sample Details
+### Sample Size
+```{r n, echo=TRUE, fig.align="center"}
+summary(meta_data$n)
+hist(meta_data$n, main="Histogram for Sample Sizes", xlab="Sample Sizes")
+```
+
+### Age
+```{r age, echo=TRUE, fig.align="center"}
+summary(meta_data$m_age)
+hist(meta_data$m_age, main="Histogram for Mean Ages", xlab="Mean Ages")
+```
+
+```{r ageII, include=FALSE}
+ggboxplot(meta_data$m_age, 
+          ylab = "Age", xlab = FALSE,
+          ggtheme = theme_minimal())
+```
+
+### Percentage Females
+```{r percntg_females, echo=TRUE, fig.align="center"}
+summary(meta_data$percntg_females)
+hist(meta_data$percntg_females, main="Histogram for Percentages Females", xlab="Percentages Females")
+```
+
+```{r percntg_femalesII, include=FALSE}
+ggboxplot(meta_data$percntg_females, 
+          ylab = "% Females", xlab = FALSE,
+          ggtheme = theme_minimal())
+```
+
+### Others
+```{r s_by_online_I, include=FALSE}
+### Online Recruiting Platform
+online_plotdata <- meta_data %>%
+        group_by(online) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+online_plotdata$online <- as.factor(online_plotdata$online)
+plot_by_online <- ggplot(online_plotdata, aes(x = online, y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("Online Recruiting Platform")
+```
+
+```{r s_by_online_II, include=FALSE}
+online_plotdata
+plot_by_online
+```
+
+```{r s_by_students_I, include=FALSE}
+### Students
+students_plotdata <- meta_data %>%
+        group_by(students) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+students_plotdata$students <- as.factor(students_plotdata$students)
+plot_by_students <- ggplot(students_plotdata, aes(x = students, y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("Students")
+```
+
+```{r s_by_students_II, include=FALSE}
+students_plotdata
+plot_by_students
+```
+
+```{r s_by_location_I, include=FALSE}
+### Location
+location_plotdata <- meta_data %>%
+        group_by(location) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+location_plotdata$location <- as.factor(location_plotdata$location)
+plot_by_location <- ggplot(location_plotdata, aes(x = reorder(location, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, hjust = -0.1))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        coord_flip()+
+        ggtitle("Location")
+```
+
+```{r s_by_location_II, include=FALSE}
+location_plotdata
+plot_by_location
+```
+
+```{r s_by_US_I, include=FALSE}
+### US-Based
+US_plotdata <- meta_data %>%
+        group_by(US) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+US_plotdata$US <- as.factor(US_plotdata$US)
+plot_by_US <- ggplot(US_plotdata, aes(x = US, y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("US-Based")
+plot_by_US
+```
+
+```{r s_by_US_II, include=FALSE}
+US_plotdata
+plot_by_US
+```
+
+```{r, include=FALSE}
+plist_2 <- list(plot_by_online, plot_by_students, plot_by_location, plot_by_US)
+```
+
+```{r, gridII, echo = TRUE, fig.height=10, fig.width=10}
+do.call("grid.arrange", c(plist_2, ncol = 2))
+```
+
+## 5. Domain Details
+### All Domains
+```{r s_by_domain_I, include=FALSE}
+domain_plotdata <- meta_data %>%
+        group_by(domain) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+domain_plotdata$domain <- as.factor(domain_plotdata$domain)
+plot_by_domain <- ggplot(domain_plotdata, aes(x = reorder(domain, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, hjust = -0.1))+
+        coord_flip()+
+        theme_bw()+
+        labs(x = "", y ="")
+```
+
+```{r s_by_domain_II, echo=TRUE, fig.align="center", fig.width=10}
+domain_plotdata
+plot_by_domain
+```
+
+### Management
+```{r s_by_management_I, include=FALSE}
+# meta_data$management <- ifelse((meta_data$domain=="management"), 1,-1)
+# meta_data$management <- as.factor(meta_data$management)
+management_plotdata <- meta_data %>%
+        group_by(management) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+management_plotdata$management <- as.factor(management_plotdata$management)
+plot_by_management <- ggplot(management_plotdata, aes(x = reorder(management, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")
+plot_by_management
+```
+
+```{r s_by_management_II, echo=TRUE, fig.align="center", fig.width=10}
+management_plotdata
+plot_by_management
+```
+
+### Subjective versus Objective
+```{r subjobj_I, include=FALSE}
+subjobj_plotdata <- meta_data %>%
+        group_by(subj_vs_obj) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+subjobj_plotdata$subj_vs_obj <- as.factor(subjobj_plotdata$subj_vs_obj)
+plot_by_subjobj <- ggplot(subjobj_plotdata, aes(x = reorder(subj_vs_obj, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")
+```
+
+```{r subjobj_II, echo=TRUE, fig.align="center", fig.width=10}
+subjobj_plotdata
+plot_by_subjobj
+```
+
+### Severity
+```{r severity_I, include=FALSE}
+severity_plotdata <- meta_data %>%
+        group_by(severity) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+severity_plotdata$severity <- as.factor(severity_plotdata$severity)
+plot_by_severity <- ggplot(severity_plotdata, aes(x = severity, y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")
+```
+
+```{r severity_II, echo=TRUE, fig.align="center", fig.width=10}
+severity_plotdata
+plot_by_severity
+```
+
+## 6. Stimuli Details
+```{r s_by_human_type_I, include=FALSE}
+### Description of the Human
+human_type_plotdata <- meta_data %>%
+        group_by(human_type) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+human_type_plotdata$human_type <- as.factor(human_type_plotdata$human_type)
+plot_by_human_type <- ggplot(human_type_plotdata, aes(x = reorder(human_type, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, hjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        coord_flip()+
+        ggtitle("Description of the Human")
+
+```
+
+```{r s_by_human_type_II, include=FALSE}
+human_type_plotdata
+plot_by_human_type
+```
+
+```{r s_by_expert_I, include=FALSE}
+### Expert Dummy
+expert_plotdata <- meta_data %>%
+        group_by(expert) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+expert_plotdata$expert <- as.factor(expert_plotdata$expert)
+plot_by_expert <- ggplot(expert_plotdata, aes(x = reorder(expert, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("Expert Framing of the Human")
+
+```
+
+```{r s_by_expert_II, include=FALSE}
+expert_plotdata
+plot_by_expert
+```
+
+```{r s_by_machinet_I, include=FALSE}
+### Description of the Machine
+machine_terminology_plotdata <- meta_data %>%
+        group_by(machine_terminology) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+machine_terminology_plotdata$machine_terminology <- as.factor(machine_terminology_plotdata$machine_terminology)
+plot_by_machine_terminology <- ggplot(machine_terminology_plotdata, aes(x = reorder(machine_terminology, n), y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, hjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        coord_flip()+
+        ggtitle("Description of the Machine")
+
+```
+
+```{r s_by_machinet_II, include=FALSE}
+machine_terminology_plotdata
+plot_by_machine_terminology
+```
+
+```{r s_by_algorithm_dummy _I, include=FALSE}
+### Presence of "Algorithm"
+algorithm_dummy_plotdata <- meta_data %>%
+        group_by(algorithm_dummy ) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+algorithm_dummy_plotdata$algorithm_dummy  <- as.factor(algorithm_dummy_plotdata$algorithm_dummy )
+plot_by_algorithm_dummy  <- ggplot(algorithm_dummy_plotdata, aes(x = algorithm_dummy, y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("Presence of the Term <Algorithm>")
+
+```
+
+```{r s_by_algorithm_dummy _II, include=FALSE}
+algorithm_dummy_plotdata
+plot_by_algorithm_dummy 
+```
+
+```{r s_by_ai_dummy _I, include=FALSE}
+### AI Dummy
+algorithm_dummy_plotdata <- meta_data %>%
+        group_by(ai_dummy ) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+algorithm_dummy_plotdata$ai_dummy  <- as.factor(algorithm_dummy_plotdata$ai_dummy )
+plot_by_ai_dummy  <- ggplot(algorithm_dummy_plotdata, aes(x = ai_dummy, y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("Presence of the Term <Artificial Intelligence>")
+
+```
+
+```{r s_by_ai_dummy _II, include=FALSE}
+algorithm_dummy_plotdata
+plot_by_ai_dummy 
+```
+
+```{r s_by_textual_I, include=FALSE}
+### Textual Presentation
+algorithm_dummy_plotdata <- meta_data %>%
+        group_by(textual) %>%
+        dplyr::summarize(n = n()) %>% 
+        dplyr::mutate(pct = n/sum(n),
+                      lbl = scales::percent(pct)) %>% 
+        arrange(desc(pct))
+
+algorithm_dummy_plotdata$textual <- as.factor(algorithm_dummy_plotdata$textual)
+plot_by_textual <- ggplot(algorithm_dummy_plotdata, aes(x = textual, y = n)) +
+        geom_bar(stat = "identity")+
+        geom_text(aes(label = n, vjust = -0.3))+
+        theme_bw()+
+        labs(x = "", y ="")+
+        ggtitle("Textual Stimulus Representation")
+
+```
+
+```{r s_by_textual_II, include=FALSE}
+algorithm_dummy_plotdata
+plot_by_textual
+```
+
+```{r, include=FALSE}
+plist_3 <- list(plot_by_human_type, plot_by_expert, plot_by_algorithm_dummy, plot_by_ai_dummy, plot_by_textual)
+```
+
+```{r, echo = TRUE, fig.height=15, fig.width=10}
+do.call("grid.arrange", c(plist_3, ncol = 2))
+```
+
+# Moderator Descriptives
+## 1. Moderators by Aversion (Binary) Plots
+* Tammo Bijmolt (in his slides) on the question of sufficient number of observations per moderator level: "Many issues have been used just a few times. These moderators (levels) cannot be studied. Solution: Drop the moderator or combine levels. Future research in the Discussion section.."
+* Moderators with < 30 observation in one level:
+  * unpublished versus published work --> own limitation?
+  * field study --> observation in discussion section?
+  * discrete dv scaling --> probably strong correlation with dv measurement type = behavioral, there enough obs
+  * incentive compatibility --> observation in discussion section?
+
+```{r, iplot_I, include = FALSE}
+# outlet
+iplot_outlet <- meta_data %>%
+  dplyr::group_by(aversion, outlet) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_outlet$outlet <- as.factor(iplot_outlet$outlet)
+iplot_outlet$aversion <- as.factor(iplot_outlet$aversion)
+iplot_outlet_plot <- ggplot(iplot_outlet, aes(outlet, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1))+
+ggtitle("Aversion by Outlet")
+iplot_outlet_plot
+
+# discipline
+iplot_discipline <- meta_data %>%
+  dplyr::group_by(aversion, discipline) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_discipline$discipline <- as.factor(iplot_discipline$discipline)
+iplot_discipline$aversion <- as.factor(iplot_discipline$aversion)
+iplot_discipline_plot <- ggplot(iplot_discipline, aes(discipline, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Discipline")
+  iplot_discipline_plot
+  
+# year
+avbyy_data <- meta_data %>%
+  dplyr::group_by(aversion, pubyear) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+level_order <- c("1", "0")
+avbyy_data$aversion <- factor(avbyy_data$aversion, levels=level_order)
+
+avbyy_data$pubyear <- as.factor(avbyy_data$pubyear)
+avbyy_data$aversion <- as.factor(avbyy_data$aversion)
+aversion_by_year_plot <- ggplot(avbyy_data, aes(pubyear, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "Year of Publication", y = "Number of Studies")+ 
+  theme_classic(base_size = 12) +
+  theme(legend.position="top") + 
+  scale_fill_grey(name = "Algorithm Aversion", labels = c("Observed", "Not Observed"))
+aversion_by_year_plot
+
+# density plot
+library(ggthemes)
+densityplot <- ggplot(densitydata, aes(pubyear, fill = aversion))+
+  geom_density(adjust = 2.5, alpha = 0.8, color=NA) +
+  geom_vline(data = mu, aes(xintercept=grp.mean, color = aversion), linetype="dashed", size=1)+
+  labs(x = "Year of Publication", y = "Density")+ 
+  geom_rangeframe() + 
+  theme_clean(base_size = 12)  +
+  scale_fill_grey(name = "Algorithm Aversion", labels = c("Not Observed", " Observed")) + 
+  scale_colour_grey(start = 0.25, end = 0.55) + guides(color="none") +
+  theme(legend.position="bottom") +
+  scale_x_continuous(breaks=seq(2002,2022,4))
+densityplot
+
+library(ggthemes)
+densityplot <- ggplot(densitydata, aes(pubyear, fill = aversion))+
+  geom_density(adjust = 2.5, alpha = 0.8, color=NA) +
+  geom_vline(data = mu, aes(xintercept=grp.mean, color = aversion), linetype="dashed", size=1)+
+  labs(x = "Year of Publication", y = "Density")+
+  theme_clean()  +
+  scale_fill_grey(start = 0.8, end = 0.2, name = "", labels = c("Algorithm Appreciation", "Algorithm Aversion")) +
+  scale_colour_grey(start = 0.55, end = 0.25) + guides(color="none") +
+  theme(legend.position="bottom") +
+  scale_x_continuous(breaks=seq(2002,2022,4))
+densityplot
+library(Cairo)
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(Cairo)
+ggsave(filename = "aversion_by_year.png",
+       plot = aversion_by_year_plot, dpi = 1000, width=6, height=5, type = "cairo")
+
+library(Cairo)
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(Cairo)
+ggsave(filename = "density_plot.png",
+       plot = densityplot, dpi = 1000, width=6, height=5, type = "cairo")
+
+# pubtype
+iplot_pubtype <- meta_data %>%
+  dplyr::group_by(aversion, pubtype) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_pubtype$pubtype <- as.factor(iplot_pubtype$pubtype)
+iplot_pubtype$aversion <- as.factor(iplot_pubtype$aversion)
+iplot_pubtype_plot <- ggplot(iplot_pubtype, aes(pubtype, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Publication Type")
+iplot_pubtype_plot
+
+# published
+iplot_published <- meta_data %>%
+  dplyr::group_by(aversion, published) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_published$published <- as.factor(iplot_published$published)
+iplot_published$aversion <- as.factor(iplot_published$aversion)
+iplot_published_plot <- ggplot(iplot_published, aes(published, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Published")
+iplot_published_plot
+
+# within_subject
+iplot_within_subject <- meta_data %>%
+  dplyr::group_by(aversion, within_subject) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_within_subject$within_subject <- as.factor(iplot_within_subject$within_subject)
+iplot_within_subject$aversion <- as.factor(iplot_within_subject$aversion)
+iplot_within_subject_plot <- ggplot(iplot_within_subject, aes(within_subject, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Within-Subject Design")
+iplot_within_subject_plot
+
+# # random
+# iplot_random <- meta_data %>%
+#   dplyr::group_by(aversion, random) %>%
+#   dplyr::summarize(n = n()) %>% 
+#   dplyr::mutate(pct = n/sum(n),
+#                 lbl = scales::percent(pct))
+
+# iplot_random$random <- as.factor(iplot_random$random)
+# iplot_random$aversion <- as.factor(iplot_random$aversion)
+# iplot_random_plot <- ggplot(iplot_random, aes(random, y = n, fill = aversion))+
+#   geom_bar(stat = "identity", position = "dodge")+
+#   geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+#   labs(x = "", y = "")+ 
+#   theme_bw(base_size = 14) +
+#   theme(legend.title = element_blank())+
+#         ggtitle("Aversion by Presence of Randomization")
+# iplot_random_plot
+
+# field
+iplot_field <- meta_data %>%
+  dplyr::group_by(aversion, field) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_field$field <- as.factor(iplot_field$field)
+iplot_field$aversion <- as.factor(iplot_field$aversion)
+iplot_field_plot <- ggplot(iplot_field, aes(field, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Field Study")
+iplot_field_plot
+
+# dv_cat
+iplot_dv_cat <- meta_data %>%
+  dplyr::group_by(aversion, dv_cat) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_dv_cat$dv_cat <- as.factor(iplot_dv_cat$dv_cat)
+iplot_dv_cat$aversion <- as.factor(iplot_dv_cat$aversion)
+iplot_dv_cat_plot <- ggplot(iplot_dv_cat, aes(dv_cat, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by DV Category")
+iplot_dv_cat_plot
+
+# subjective_perception
+iplot_subjective_perception <- meta_data %>%
+  dplyr::group_by(aversion, subjective_perception) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_subjective_perception$subjective_perception <- as.factor(iplot_subjective_perception$subjective_perception)
+iplot_subjective_perception$aversion <- as.factor(iplot_subjective_perception$aversion)
+iplot_subjective_perception_plot <- ggplot(iplot_subjective_perception, aes(subjective_perception, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Subjective Perception")
+iplot_subjective_perception_plot
+
+# dv_scaling
+iplot_dv_scaling <- meta_data %>%
+  dplyr::group_by(aversion, dv_scaling) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_dv_scaling$dv_scaling <- as.factor(iplot_dv_scaling$dv_scaling)
+iplot_dv_scaling$aversion <- as.factor(iplot_dv_scaling$aversion)
+iplot_dv_scaling_plot <- ggplot(iplot_dv_scaling, aes(dv_scaling, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by DV Scaling")
+iplot_dv_scaling_plot
+
+# dv_measurement_type
+iplot_dv_measurement_type <- meta_data %>%
+  dplyr::group_by(aversion, dv_measurement_type) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_dv_measurement_type$dv_measurement_type <- as.factor(iplot_dv_measurement_type$dv_measurement_type)
+iplot_dv_measurement_type$aversion <- as.factor(iplot_dv_measurement_type$aversion)
+iplot_dv_measurement_type_plot <- ggplot(iplot_dv_measurement_type, aes(dv_measurement_type, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by DV Measurement Type")
+iplot_dv_measurement_type_plot
+
+# compensation
+iplot_compensation <- meta_data %>%
+  dplyr::group_by(aversion, compensation) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_compensation$compensation <- as.factor(iplot_compensation$compensation)
+iplot_compensation$aversion <- as.factor(iplot_compensation$aversion)
+iplot_compensation_plot <- ggplot(iplot_compensation, aes(compensation, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Compensation")
+iplot_compensation_plot
+
+# incentive_compatible
+iplot_incentive_compatible <- meta_data %>%
+  dplyr::group_by(aversion, incentive_compatible) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_incentive_compatible$incentive_compatible <- as.factor(iplot_incentive_compatible$incentive_compatible)
+iplot_incentive_compatible$aversion <- as.factor(iplot_incentive_compatible$aversion)
+iplot_incentive_compatible_plot <- ggplot(iplot_incentive_compatible, aes(incentive_compatible, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Incentive Compatibility")
+iplot_incentive_compatible_plot
+
+# preregistered
+iplot_preregistered <- meta_data %>%
+  dplyr::group_by(aversion, preregistered) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_preregistered$preregistered <- as.factor(iplot_preregistered$preregistered)
+iplot_preregistered$aversion <- as.factor(iplot_preregistered$aversion)
+iplot_preregistered_plot <- ggplot(iplot_preregistered, aes(preregistered, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Preregistration")
+iplot_preregistered_plot
+
+# m_age
+meta_data$aversion <- as.factor(meta_data$aversion)
+iplot_m_age_plot <- ggplot(meta_data, aes(x = m_age, fill = aversion, color = aversion)) + 
+  geom_histogram(position = "dodge", binwidth = 10)+
+        ggtitle("Aversion by Age")+  
+    stat_bin(binwidth=10, geom="text", position = "dodge", aes(label=..count..), vjust=-0.3)
+iplot_m_age_plot
+
+# percntg_females
+meta_data$aversion <- as.factor(meta_data$aversion)
+iplot_percntg_females_plot <- ggplot(meta_data, aes(x = percntg_females, fill = aversion, color = aversion)) + 
+  geom_histogram(position = "dodge", binwidth = 10)+
+        ggtitle("Aversion by Share of Females")+  
+    stat_bin(binwidth=10, geom="text", position = "dodge", aes(label=..count..), vjust=-0.3)
+iplot_percntg_females_plot
+
+# online
+iplot_online <- meta_data %>%
+  dplyr::group_by(aversion, online) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_online$online <- as.factor(iplot_online$online)
+iplot_online$aversion <- as.factor(iplot_online$aversion)
+iplot_online_plot <- ggplot(iplot_online, aes(online, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Sample from Online Recruiting Platform")
+iplot_online_plot
+
+# students
+iplot_students <- meta_data %>%
+  dplyr::group_by(aversion, students) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_students$students <- as.factor(iplot_students$students)
+iplot_students$aversion <- as.factor(iplot_students$aversion)
+iplot_students_plot <- ggplot(iplot_students, aes(students, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Student Sample")
+iplot_students_plot
+
+# location
+iplot_location <- meta_data %>%
+  dplyr::group_by(aversion, location) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_location$location <- as.factor(iplot_location$location)
+iplot_location$aversion <- as.factor(iplot_location$aversion)
+iplot_location_plot <- ggplot(iplot_location, aes(location, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Location")
+iplot_location_plot
+
+# US
+iplot_US <- meta_data %>%
+  dplyr::group_by(aversion, US) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_US$US <- as.factor(iplot_US$US)
+iplot_US$aversion <- as.factor(iplot_US$aversion)
+iplot_US_plot <- ggplot(iplot_US, aes(US, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by US")
+iplot_US_plot
+
+# sample_type
+iplot_sample_type <- meta_data %>%
+  dplyr::group_by(aversion, sample_type) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_sample_type$sample_type <- as.factor(iplot_sample_type$sample_type)
+iplot_sample_type$aversion <- as.factor(iplot_sample_type$aversion)
+iplot_sample_type_plot <- ggplot(iplot_sample_type, aes(sample_type, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Sample Type")
+iplot_sample_type_plot
+# 
+
+# domain
+iplot_domain <- meta_data %>%
+  dplyr::group_by(aversion, domain) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_domain$domain <- as.factor(iplot_domain$domain)
+iplot_domain$aversion <- as.factor(iplot_domain$aversion)
+iplot_domain_plot <- ggplot(iplot_domain, aes(domain, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Domain")
+iplot_domain_plot
+
+# domain
+avbyy_data <- meta_data %>%
+  dplyr::group_by(aversion, domain) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+level_order <- c("1", "0")
+avbyy_data$aversion <- factor(avbyy_data$aversion, levels=level_order)
+
+avbyy_data$domain <- as.factor(avbyy_data$domain)
+avbyy_data$aversion <- as.factor(avbyy_data$aversion)
+aversion_by_domain_plot <- ggplot(avbyy_data, aes(domain, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "Context", y = "Number of Studies")+ 
+  theme_classic(base_size = 12) +
+  theme(legend.position="top") + 
+  scale_fill_grey(name = "Algorithm Aversion", labels = c("Observed", "Not Observed"))+
+  theme(axis.text.x = element_text(angle = 90, hjust = 1))
+aversion_by_domain_plot
+
+library(Cairo)
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(Cairo)
+ggsave(filename = "aversion_by_domain.png",
+       plot = aversion_by_domain_plot, dpi = 1000, width=6, height=6, type = "cairo")
+
+# private_life
+avbyy_data <- meta_data %>%
+  dplyr::group_by(aversion, private_life) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+avbyy_data <- avbyy_data[ which(avbyy_data$private_life=="no" | avbyy_data$private_life == "yes"), ]
+
+level_order <- c("1", "0")
+avbyy_data$aversion <- factor(avbyy_data$aversion, levels=level_order)
+
+avbyy_data$private_life <- as.factor(avbyy_data$private_life)
+avbyy_data$aversion <- as.factor(avbyy_data$aversion)
+aversion_by_private_life_plot <- ggplot(avbyy_data, aes(private_life, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "Private-Life Related Task", y = "Number of Studies")+ 
+  theme_classic(base_size = 12) +
+  theme(legend.position="top") + 
+  scale_fill_grey(name = "Algorithm Aversion", labels = c("Observed", "Not Observed"))
+aversion_by_private_life_plot
+
+library(Cairo)
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(Cairo)
+ggsave(filename = "aversion_by_private_life.png",
+       plot = aversion_by_private_life_plot, dpi = 1000, width=6, height=5, type = "cairo")
+
+# management
+iplot_management <- meta_data %>%
+  dplyr::group_by(aversion, management) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_management$management <- as.factor(iplot_management$management)
+iplot_management$aversion <- as.factor(iplot_management$aversion)
+iplot_management_plot <- ggplot(iplot_management, aes(management, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by management")
+iplot_management_plot
+
+# subj_vs_obj
+iplot_subj_vs_obj <- meta_data %>%
+  dplyr::group_by(aversion, subj_vs_obj) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_subj_vs_obj$subj_vs_obj <- as.factor(iplot_subj_vs_obj$subj_vs_obj)
+iplot_subj_vs_obj$aversion <- as.factor(iplot_subj_vs_obj$aversion)
+iplot_subj_vs_obj_plot <- ggplot(iplot_subj_vs_obj, aes(subj_vs_obj, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by subj_vs_obj")
+iplot_subj_vs_obj_plot
+
+# severity
+iplot_severity <- meta_data %>%
+  dplyr::group_by(aversion, severity) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_severity$severity <- as.factor(iplot_severity$severity)
+iplot_severity$aversion <- as.factor(iplot_severity$aversion)
+iplot_severity_plot <- ggplot(iplot_severity, aes(severity, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by severity")
+iplot_severity_plot
+
+# human_type
+iplot_human_type <- meta_data %>%
+  dplyr::group_by(aversion, human_type) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_human_type$human_type <- as.factor(iplot_human_type$human_type)
+iplot_human_type$aversion <- as.factor(iplot_human_type$aversion)
+iplot_human_type_plot <- ggplot(iplot_human_type, aes(human_type, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1))+
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Human Type")
+iplot_human_type_plot
+
+# expert
+iplot_expert <- meta_data %>%
+  dplyr::group_by(aversion, expert) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_expert$expert <- as.factor(iplot_expert$expert)
+iplot_expert$aversion <- as.factor(iplot_expert$aversion)
+iplot_expert_plot <- ggplot(iplot_expert, aes(expert, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Expert Framing of the Human")
+iplot_expert_plot
+
+# algorithm_dummy
+iplot_algorithm_dummy <- meta_data %>%
+  dplyr::group_by(aversion, algorithm_dummy) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_algorithm_dummy$algorithm_dummy <- as.factor(iplot_algorithm_dummy$algorithm_dummy)
+iplot_algorithm_dummy$aversion <- as.factor(iplot_algorithm_dummy$aversion)
+iplot_algorithm_dummy_plot <- ggplot(iplot_algorithm_dummy, aes(algorithm_dummy, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Presence of the Term <Algorithm>")
+iplot_algorithm_dummy_plot
+
+# ai_dummy
+iplot_ai_dummy <- meta_data %>%
+  dplyr::group_by(aversion, ai_dummy) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_ai_dummy$ai_dummy <- as.factor(iplot_ai_dummy$ai_dummy)
+iplot_ai_dummy$aversion <- as.factor(iplot_ai_dummy$aversion)
+iplot_ai_dummy_plot <- ggplot(iplot_ai_dummy, aes(ai_dummy, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Presence of the Term <Artificial Intelligence>")
+iplot_ai_dummy_plot
+
+# textual
+iplot_textual <- meta_data %>%
+  dplyr::group_by(aversion, textual) %>%
+  dplyr::summarize(n = n()) %>% 
+  dplyr::mutate(pct = n/sum(n),
+                lbl = scales::percent(pct))
+
+iplot_textual$textual <- as.factor(iplot_textual$textual)
+iplot_textual$aversion <- as.factor(iplot_textual$aversion)
+iplot_textual_plot <- ggplot(iplot_textual, aes(textual, y = n, fill = aversion))+
+  geom_bar(stat = "identity", position = "dodge")+
+  geom_text(aes(label = n, vjust = -0.5), position = position_dodge(width = 0.9))+
+  labs(x = "", y = "")+ 
+  theme_bw(base_size = 14) +
+  theme(legend.title = element_blank())+
+        ggtitle("Aversion by Textual Stimulus Representation")
+iplot_textual_plot
+```
+
+```{r, iplot_IIb, include=FALSE}
+plist_ipd <- list(iplot_pubtype_plot, iplot_published_plot)
+
+plist_imd <- list(iplot_within_subject_plot, iplot_field_plot, iplot_dv_cat_plot, iplot_subjective_perception_plot, iplot_dv_scaling_plot, iplot_dv_measurement_type_plot, iplot_compensation_plot, iplot_incentive_compatible_plot, iplot_preregistered_plot)
+
+plist_isd <- list(iplot_m_age_plot, iplot_percntg_females_plot, iplot_online_plot, iplot_students_plot, iplot_location_plot, iplot_US_plot, iplot_sample_type_plot)
+
+plist_id <- list(iplot_domain_plot, iplot_management_plot, iplot_subj_vs_obj_plot, iplot_severity_plot)
+
+plist_istd <- list(iplot_human_type_plot, iplot_expert_plot, iplot_algorithm_dummy_plot, iplot_ai_dummy_plot, iplot_textual_plot)
+```
+
+### Aversion by Publication Details
+```{r, iplot_II, echo = TRUE, fig.height=12, fig.width=10, warning=FALSE}
+iplot_outlet_plot
+```
+
+```{r, iplot_IId, echo = TRUE, fig.height=6.5, fig.width=10, warning=FALSE}
+iplot_discipline_plot
+```
+
+```{r, iplot_IIc, echo = TRUE, fig.width=10, warning=FALSE, fig.height=6.5}
+plist_ipd
+```
+
+```{r avbyy_II, echo=TRUE, fig.align="center", fig.height=5, fig.width=10}
+aversion_by_year_plot
+```
+
+### Aversion by Method Details
+```{r, iplot_III, echo = TRUE, fig.width=10, warning=FALSE, fig.height=6.5}
+plist_imd
+```
+
+### Aversion by Sample Details
+```{r, iplot_IV, echo = TRUE, fig.width=10, warning=FALSE, fig.height=6.5}
+plist_isd
+```
+
+### Aversion by Domain
+```{r, iplot_Z, echo = TRUE, fig.width=10, warning=FALSE, fig.height=6.5}
+plist_id
+```
+
+### Aversion by Stimuli Details
+```{r, iplot_V, echo = TRUE, fig.width=10, warning=FALSE, fig.height=6.5}
+plist_istd
+```
+
+## 2. Moderators by Cohens d Plots
+
+Main findings in this section (Model Free Evidence)
+
+* Positive avg. cohen's d when 
+  * outcome was measured on a discrete scale
+  * when the task was shopping
+  * when the task is social 
+  * when the task is news
+* Aversion significantly reduced, when: 
+  * DV was measured behaviorally (compared to self-report)
+  * The task was related to shopping rather than military
+  * The task is subjective, rather than objective
+  * human condition involves no experts versus experts (i.e., When the human is not an expert (either explicitly described with the term "expert" or described as a professional, e.g., "a doctor") aversion is significantly smaller)
+  * machine description contains the term artificial intelligence compared to no mention (i.e., when the term artificial intelligence is present, aversion is significantly smaller)
+  * sample was based in America
+
+```{r, modses, include = FALSE}
+mods <- c("outlet", "discipline", "pubtype", "published", "within_subject", "field", "dv_cat", "subjective_perception", "dv_scaling", "dv_measurement_type", "compensation", "incentive_compatible", "preregistered", "online", "students", "location", "US", "sample_type", "domain", "management", "human_type", "expert", "algorithm_dummy", "ai_dummy", "textual", "severity", "subj_vs_obj")
+```
+
+```{r, modses2, include = FALSE}
+plist <- list()
+boxplotlist <- list()
+i <- 1
+for(mod in mods){
+  #Barplor
+  plist[[mod]] <- ggplot(meta_data, aes_string(x = mod, y = "cohens_d")) +
+    stat_summary(fun = mean, geom = "bar", fill = "White", colour = "Black")+
+    stat_summary(fun.data = mean_se, geom = "errorbar", width = 0.2)+
+    theme_classic(base_size = 14)+
+    labs(x ="")+
+    theme(legend.title = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1))+
+    theme(legend.title = element_blank())+
+    ggtitle(mod)+
+  ylim(-2, 2)
+  # Boxplot
+  boxplotlist[[mod]] <- ggplot(meta_data, aes_string(x = mod, y = "cohens_d")) + 
+  geom_boxplot()+
+  geom_jitter(position=position_jitter(0.2))+
+    theme_classic(base_size = 14)+
+    labs(x ="")+
+    theme(legend.title = element_blank(), axis.text.x = element_text(angle = 90, hjust = 1))+
+    theme(legend.title = element_blank())+
+    ggtitle(mod)+
+  ylim(-2, 2)
+  i <- i + 1
+}
+```
+
+```{r, modses5, include = FALSE}
+modsdata <- meta_data %>%
+  select(cohens_d, discipline, pubtype, published, within_subject, field, dv_cat, subjective_perception, dv_scaling, dv_measurement_type, compensation, incentive_compatible, preregistered, online, students, location, US, sample_type, domain, management, human_type, expert, algorithm_dummy, ai_dummy, textual, severity, subj_vs_obj)
+
+modsdata[2:ncol(modsdata)] <- lapply(modsdata[2:ncol(modsdata)], as.factor)
+modsdata$management <- as.factor(modsdata$management)
+
+aovlist <- list()
+1:ncol(modsdata)
+for (i in 2:ncol(modsdata)){
+  column <- names(modsdata[i])
+  aovlist[[column]] <- summary(aov(cohens_d~modsdata[,i], data=modsdata))
+}
+
+meanlist <- list()
+1:ncol(modsdata)
+for (i in 2:ncol(modsdata)){
+  column <- names(modsdata[i])
+  meanlist[[column]] <- modsdata %>%
+  group_by(modsdata[,i]) %>%
+  summarise_at(vars(cohens_d), list(name = mean))
+}
+```
+
+```{r, plots1, echo = TRUE, fig.width=10, fig.height=10, warning=FALSE, fig.align="center"}
+print(plist[1])
+print(boxplotlist[1])
+```
+
+```{r, plots2, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[2])
+print(boxplotlist[2])
+print(meanlist[1])
+print(aovlist[1])
+TukeyHSD(aov(cohens_d ~ discipline, data = meta_data))
+```
+
+```{r, plots3, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[3])
+print(boxplotlist[3])
+print(meanlist[2])
+print(aovlist[2])
+TukeyHSD(aov(cohens_d ~ pubtype, data = meta_data))
+```
+
+```{r, plots4, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[4])
+print(boxplotlist[4])
+print(meanlist[3])
+print(aovlist[3])
+t.test(cohens_d ~ published, data = meta_data, var.equal = FALSE)
+```
+
+```{r, plots5, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[5])
+print(boxplotlist[5])
+print(meanlist[4])
+print(aovlist[4])
+t.test(cohens_d ~ within_subject, data = meta_data, var.equal = FALSE)
+```
+
+```{r, plots6, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[6])
+print(boxplotlist[6])
+print(meanlist[5])
+print(aovlist[5])
+t.test(cohens_d ~ field, data = meta_data, var.equal = FALSE)
+```
+
+```{r, plots7, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[7])
+print(boxplotlist[7])
+print(meanlist[6])
+print(aovlist[6])
+TukeyHSD(aov(cohens_d ~ dv_cat, data = meta_data))
+```
+
+```{r, plots8, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[8])
+print(boxplotlist[8])
+print(meanlist[7])
+print(aovlist[7])
+t.test(cohens_d ~ subjective_perception, data = meta_data, var.equal = FALSE)
+```
+
+```{r, plots9, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[9])
+print(boxplotlist[9])
+print(meanlist[8])
+print(aovlist[8])
+t.test(cohens_d ~ dv_scaling, data = meta_data, var.equal = FALSE)
+```
+
+```{r, plots10, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[10])
+print(boxplotlist[10])
+print(meanlist[9])
+print(aovlist[9])
+t.test(cohens_d ~ dv_measurement_type, data = meta_data, var.equal = FALSE)
+t.test(cohens_d ~ dv_measurement_type, data = meta_data, var.equal = TRUE)
+```
+
+```{r, plots11, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[11])
+print(boxplotlist[11])
+print(meanlist[10])
+print(aovlist[10])
+t.test(cohens_d ~ compensation, data = meta_data, var.equal = FALSE)
+```
+
+```{r, plots12, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[12])
+print(boxplotlist[12])
+print(meanlist[11])
+print(aovlist[11])
+t.test(cohens_d ~ incentive_compatible, data = meta_data, var.equal = FALSE)
+```
+
+```{r, plots13, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[13])
+print(boxplotlist[13])
+print(meanlist[12])
+print(aovlist[12])
+t.test(cohens_d ~ preregistered, data = meta_data, var.equal = FALSE)
+```
+
+```{r, plots14, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[14])
+print(boxplotlist[14])
+print(meanlist[13])
+print(aovlist[13])
+t.test(cohens_d ~ online, data = meta_data, var.equal = FALSE)
+```
+
+```{r, plots15, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[15])
+print(boxplotlist[15])
+print(meanlist[14])
+print(aovlist[14])
+t.test(cohens_d ~ students, data = meta_data, var.equal = FALSE)
+```
+
+```{r, plots16, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[16])
+print(boxplotlist[16])
+print(meanlist[15])
+print(aovlist[15])
+TukeyHSD(aov(cohens_d ~ location, data = meta_data))
+```
+
+```{r, plots17, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[17])
+print(boxplotlist[17])
+print(meanlist[16])
+print(aovlist[16])
+TukeyHSD(aov(cohens_d ~ US, data = meta_data))
+t.test(cohens_d ~ US, data = meta_data, var.equal = TRUE, na.rm = TRUE)
+```
+
+```{r, plots18, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[18])
+print(boxplotlist[18])
+print(meanlist[17])
+print(aovlist[17])
+TukeyHSD(aov(cohens_d ~ sample_type, data = meta_data))
+```
+
+```{r, plots19, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[19])
+print(boxplotlist[19])
+print(meanlist[18])
+print(aovlist[18])
+TukeyHSD(aov(cohens_d ~ domain, data = meta_data))
+```
+
+```{r, plots20, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[20])
+print(boxplotlist[20])
+print(meanlist[19])
+print(aovlist[19])
+t.test(cohens_d ~ management, data = meta_data, var.equal = FALSE)
+```
+
+```{r, plots21, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[21])
+print(boxplotlist[21])
+print(meanlist[20])
+print(aovlist[20])
+TukeyHSD(aov(cohens_d ~ human_type, data = meta_data))
+```
+
+```{r, plots22, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[22])
+print(boxplotlist[22])
+print(meanlist[21])
+print(aovlist[21])
+t.test(cohens_d ~ expert, data = meta_data, var.equal = FALSE)
+t.test(cohens_d ~ expert, data = meta_data, var.equal = TRUE)
+```
+
+```{r, plots23, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[23])
+print(boxplotlist[23])
+print(meanlist[22])
+print(aovlist[22])
+t.test(cohens_d ~ algorithm_dummy, data = meta_data, var.equal = FALSE)
+```
+
+```{r, plots24, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[24])
+print(boxplotlist[24])
+print(meanlist[23])
+print(aovlist[23])
+t.test(cohens_d ~ ai_dummy, data = meta_data, var.equal = FALSE)
+t.test(cohens_d ~ ai_dummy, data = meta_data, var.equal = TRUE)
+```
+
+```{r, plots25, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[25])
+print(boxplotlist[25])
+print(meanlist[24])
+print(aovlist[24])
+t.test(cohens_d ~ textual, data = meta_data, var.equal = FALSE)
+```
+
+```{r, plots26, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[26])
+print(boxplotlist[26])
+print(meanlist[25])
+print(aovlist[25])
+TukeyHSD(aov(cohens_d ~ severity, data = meta_data))
+```
+
+```{r, plots27, echo = TRUE, fig.width=5, fig.height=5, warning=FALSE, fig.align="center"}
+print(plist[27])
+print(boxplotlist[27])
+print(meanlist[26])
+print(aovlist[26])
+TukeyHSD(aov(cohens_d ~ subj_vs_obj, data = meta_data))
+```
+
+## 3. T-Statistics
+```{r, t-tests, echo = TRUE}
+# Version 1: differences in cohen?s d by iv level
+t.test(cohens_d ~ within_subject, data = meta_data, var.equal = TRUE)
+# *
+t.test(cohens_d ~ dv_measurement_type, data = meta_data, var.equal = TRUE)
+t.test(cohens_d ~ preregistered, data = meta_data, var.equal = TRUE)
+t.test(cohens_d ~ online, data = meta_data, var.equal = TRUE)
+# *
+t.test(cohens_d ~ US, data = meta_data, var.equal = TRUE)
+t.test(cohens_d ~ private_life, data = meta_data, var.equal = TRUE)
+# *
+t.test(cohens_d ~ expert, data = meta_data, var.equal = TRUE)
+# *
+t.test(cohens_d ~ ai_dummy, data = meta_data, var.equal = TRUE)
+t.test(cohens_d ~ textual, data = meta_data, var.equal = TRUE)
+
+# Version 2: differences in numerically coded iv by aversion
+# Step 1: Re-code Variables to Numeric
+meta_data$pubyear
+meta_data$pubyear <- as.numeric(as.character(meta_data$pubyear))
+meta_data$pubyear
+
+meta_data$published
+meta_data$published <- as.factor(dplyr::recode(meta_data$published, yes = 1, no = -1))
+meta_data$published
+
+meta_data$within_subject
+meta_data$within_subject <- as.factor(dplyr::recode(meta_data$within_subject, yes = 1, no = -1))
+meta_data$within_subject
+
+meta_data$field
+meta_data$field <- as.factor(dplyr::recode(meta_data$field, yes = 1, no = -1))
+meta_data$field
+
+meta_data$subjective_perception
+meta_data$subjective_perception <- as.factor(dplyr::recode(meta_data$subjective_perception, yes = 1, no = -1))
+meta_data$subjective_perception
+
+meta_data$dv_scaling
+meta_data$dv_scaling <- as.factor(dplyr::recode(meta_data$dv_scaling, continuous = 1, discrete = -1))
+meta_data$dv_scaling
+
+meta_data$dv_measurement_type
+meta_data$dv_measurement_type  <- as.factor(dplyr::recode(meta_data$dv_measurement_type, behavioral = 1, "self-report" = -1))
+meta_data$dv_measurement_type
+
+meta_data$dv_cat
+meta_data$dv_cat  <- as.factor(dplyr::recode(meta_data$dv_cat, "real outcome" = 3, "hypothetical outcome" = 2, "subjective perception" = 1))
+meta_data$dv_cat
+
+meta_data$compensation
+meta_data$compensation  <- as.factor(dplyr::recode(meta_data$compensation, yes = 1, no = -1))
+meta_data$compensation
+
+meta_data$incentive_compatible  <- as.factor(dplyr::recode(meta_data$incentive_compatible, yes = 1, no = -1))
+meta_data$incentive_compatible
+
+meta_data$preregistered
+meta_data$preregistered  <- as.factor(dplyr::recode(meta_data$preregistered, yes = 1, no = -1))
+meta_data$preregistered
+
+meta_data$m_age <- as.numeric(as.character(meta_data$m_age))
+meta_data$m_age
+summary(meta_data$m_age)
+# meta_data$m_age <- tidyr::replace_na(meta_data$m_age, 35.17)
+# meta_data$m_age
+
+meta_data$percntg_females <- as.numeric(as.character(meta_data$percntg_females))
+meta_data$percntg_females
+summary(meta_data$percntg_females)
+# meta_data$percntg_females <- tidyr::replace_na(meta_data$percntg_females, 51.89)
+# meta_data$percntg_females
+
+meta_data$online
+meta_data$online  <- as.factor(dplyr::recode(meta_data$online, yes = 1, no = -1))
+meta_data$online <- as.numeric(as.character(meta_data$online))
+meta_data$online <- tidyr::replace_na(meta_data$online, 0)
+meta_data$online <- as.factor(meta_data$online)
+meta_data$online
+
+meta_data$students
+meta_data$students  <- as.factor(dplyr::recode(meta_data$students, yes = 1, no = -1))
+meta_data$students <- as.numeric(as.character(meta_data$students))
+meta_data$students <- tidyr::replace_na(meta_data$students, 0)
+meta_data$students <- as.factor(meta_data$students)
+meta_data$students
+
+meta_data$US
+meta_data$US <- as.factor(dplyr::recode(meta_data$US, yes = 1, no = -1))
+meta_data$US <- as.numeric(as.character(meta_data$US))
+meta_data$US <- tidyr::replace_na(meta_data$US, 0)
+meta_data$US <- as.factor(meta_data$US)
+meta_data$US
+
+meta_data$severity
+meta_data$severity <- as.factor(dplyr::recode(meta_data$severity, low = 1, medium = 2, high = 3))
+meta_data$severity <- as.numeric(as.character(meta_data$severity))
+meta_data$severity <- tidyr::replace_na(meta_data$severity, 0)
+meta_data$severity <- as.factor(meta_data$severity)
+meta_data$severity
+
+meta_data$management
+meta_data$management  <- as.factor(dplyr::recode(meta_data$management, yes = 1, no = -1))
+meta_data$management <- as.numeric(as.character(meta_data$management))
+meta_data$management <- tidyr::replace_na(meta_data$management, 0)
+meta_data$management <- as.factor(meta_data$management)
+meta_data$management
+
+meta_data$private_life
+meta_data$private_life  <- as.factor(dplyr::recode(meta_data$private_life, yes = 1, no = -1))
+meta_data$private_life <- as.numeric(as.character(meta_data$private_life))
+meta_data$private_life <- tidyr::replace_na(meta_data$private_life, 0)
+meta_data$private_life <- as.factor(meta_data$private_life)
+meta_data$private_life
+
+meta_data$subj_vs_obj
+meta_data$subj_vs_obj  <- as.factor(dplyr::recode(meta_data$subj_vs_obj, subjective = 1, objective = -1))
+meta_data$subj_vs_obj <- as.numeric(as.character(meta_data$subj_vs_obj))
+meta_data$subj_vs_obj <- tidyr::replace_na(meta_data$subj_vs_obj, 0)
+meta_data$subj_vs_obj <- as.factor(meta_data$subj_vs_obj)
+meta_data$subj_vs_obj
+
+meta_data$risk
+meta_data$risk  <- as.factor(dplyr::recode(meta_data$risk, low = 1, high = -1))
+meta_data$risk <- as.numeric(as.character(meta_data$risk))
+meta_data$risk <- tidyr::replace_na(meta_data$risk, 0)
+meta_data$risk <- as.factor(meta_data$risk)
+meta_data$risk
+
+meta_data$hedonic
+meta_data$hedonic  <- as.factor(dplyr::recode(meta_data$hedonic, yes = 1, no = -1))
+meta_data$hedonic <- as.numeric(as.character(meta_data$hedonic))
+meta_data$hedonic <- tidyr::replace_na(meta_data$hedonic, 0)
+meta_data$hedonic <- as.factor(meta_data$hedonic)
+meta_data$hedonic
+
+meta_data$expert
+meta_data$expert  <- as.factor(dplyr::recode(meta_data$expert, yes = 1, no = -1))
+meta_data$expert <- as.numeric(as.character(meta_data$expert))
+meta_data$expert <- tidyr::replace_na(meta_data$expert, 0)
+meta_data$expert <- as.factor(meta_data$expert)
+meta_data$expert
+
+meta_data$algorithm_dummy
+meta_data$algorithm_dummy  <- as.factor(dplyr::recode(meta_data$algorithm_dummy, yes = 1, no = -1))
+meta_data$algorithm_dummy
+
+meta_data$ai_dummy
+meta_data$ai_dummy  <- as.factor(dplyr::recode(meta_data$ai_dummy, yes = 1, no = -1))
+meta_data$ai_dummy
+
+meta_data$textual
+meta_data$textual  <- as.factor(dplyr::recode(meta_data$textual, yes = 1, no = -1))
+meta_data$textual
+
+meta_data$pubyear <- as.numeric(as.character(meta_data$pubyear))
+meta_data$published <- as.numeric(as.character(meta_data$published))
+meta_data$within_subject <- as.numeric(as.character(meta_data$within_subject))
+meta_data$field <- as.numeric(as.character(meta_data$field))
+meta_data$subjective_perception <- as.numeric(as.character(meta_data$subjective_perception))
+meta_data$dv_scaling <- as.numeric(as.character(meta_data$dv_scaling))
+meta_data$dv_measurement_type <- as.numeric(as.character(meta_data$dv_measurement_type))
+meta_data$dv_cat <- as.numeric(as.character(meta_data$dv_cat))
+meta_data$compensation <- as.numeric(as.character(meta_data$compensation))
+meta_data$incentive_compatible <- as.numeric(as.character(meta_data$incentive_compatible))
+meta_data$preregistered <- as.numeric(as.character(meta_data$preregistered))
+meta_data$m_age <- as.numeric(as.character(meta_data$m_age))
+meta_data$percntg_females <- as.numeric(as.character(meta_data$percntg_females))
+meta_data$online <- as.numeric(as.character(meta_data$online))
+meta_data$students <- as.numeric(as.character(meta_data$students))
+meta_data$US <- as.numeric(as.character(meta_data$US))
+meta_data$severity <- as.numeric(as.character(meta_data$severity))
+meta_data$management <- as.numeric(as.character(meta_data$management))
+meta_data$private_life <- as.numeric(as.character(meta_data$private_life))
+meta_data$subj_vs_obj <- as.numeric(as.character(meta_data$subj_vs_obj))
+meta_data$risk <- as.numeric(as.character(meta_data$risk))
+meta_data$hedonic <- as.numeric(as.character(meta_data$hedonic))
+meta_data$expert <- as.numeric(as.character(meta_data$expert))
+meta_data$algorithm_dummy <- as.numeric(as.character(meta_data$algorithm_dummy))
+meta_data$ai_dummy <- as.numeric(as.character(meta_data$ai_dummy))
+meta_data$textual <- as.numeric(as.character(meta_data$textual))
+
+means <- meta_data %>%
+	group_by(aversion) %>%
+	summarise(m_cohens_d = mean(cohens_d), m_year = mean(pubyear), m_design = mean(within_subject),m_dv_measurement_type = mean(dv_measurement_type), m_preregistered = mean(preregistered), m_age = mean(m_age), m_gender = mean(percntg_females), m_online = mean(online), m_US = mean(US), m_private = mean(private_life), m_expert = mean(expert), m_ai = mean(ai_dummy), m_repr = mean(textual))
+
+write.xlsx(means, file="means.xlsx")
+
+# Step 2: T-Tests
+library(car)
+meta_data$aversion <- as.factor(meta_data$aversion)
+
+# cohens_d
+shapiro.test(meta_data$cohens_d)
+hist(meta_data$cohens_d)
+leveneTest(cohens_d ~ aversion, data = meta_data)
+t.test(cohens_d ~ aversion, data = meta_data, var.equal = FALSE)
+
+# pubyear***
+shapiro.test(meta_data$pubyear)
+hist(meta_data$pubyear)
+leveneTest(pubyear ~ aversion, data = meta_data)
+t.test(pubyear ~ aversion, data = meta_data, var.equal = FALSE)
+
+# within_subject
+shapiro.test(meta_data$within_subject)
+hist(meta_data$within_subject)
+leveneTest(within_subject ~ aversion, data = meta_data)
+t.test(within_subject ~ aversion, data = meta_data, var.equal = FALSE)
+
+# dv_measurement_type
+shapiro.test(meta_data$dv_measurement_type)
+hist(meta_data$dv_measurement_type)
+leveneTest(dv_measurement_type ~ aversion, data = meta_data)
+t.test(dv_measurement_type ~ aversion, data = meta_data, var.equal = FALSE)
+
+# preregistered
+shapiro.test(meta_data$preregistered)
+hist(meta_data$preregistered)
+leveneTest(preregistered ~ aversion, data = meta_data)
+t.test(preregistered ~ aversion, data = meta_data, var.equal = FALSE)
+
+# m_age
+shapiro.test(meta_data$m_age)
+hist(meta_data$m_age)
+leveneTest(m_age ~ aversion, data = meta_data)
+t.test(m_age ~ aversion, data = meta_data, var.equal = FALSE)
+
+# percntg_females
+shapiro.test(meta_data$percntg_females)
+hist(meta_data$percntg_females)
+leveneTest(percntg_females ~ aversion, data = meta_data)
+t.test(percntg_females ~ aversion, data = meta_data, var.equal = TRUE)
+
+# online               
+shapiro.test(meta_data$online)
+hist(meta_data$online)
+leveneTest(online ~ aversion, data = meta_data)
+t.test(online ~ aversion, data = meta_data, var.equal = FALSE)
+
+# US       
+shapiro.test(meta_data$US)
+hist(meta_data$US)
+leveneTest(US ~ aversion, data = meta_data)
+t.test(US ~ aversion, data = meta_data, var.equal = FALSE)
+
+# Private Life       
+shapiro.test(meta_data$private_life)
+hist(meta_data$private_life)
+leveneTest(private_life ~ aversion, data = meta_data)
+t.test(private_life ~ aversion, data = meta_data, var.equal = FALSE)
+
+# Expert      
+shapiro.test(meta_data$expert)
+hist(meta_data$expert)
+leveneTest(expert ~ aversion, data = meta_data)
+t.test(expert ~ aversion, data = meta_data, var.equal = FALSE)
+
+# AI Label      
+shapiro.test(meta_data$ai_dummy)
+hist(meta_data$ai_dummy)
+leveneTest(ai_dummy ~ aversion, data = meta_data)
+t.test(ai_dummy ~ aversion, data = meta_data, var.equal = FALSE)
+
+# Textual representation      
+shapiro.test(meta_data$textual)
+hist(meta_data$textual)
+leveneTest(textual ~ aversion, data = meta_data)
+t.test(textual ~ aversion, data = meta_data, var.equal = FALSE)
+```
+
+## 3. Moderator Correlations
+* Tammo Bijmolt (in his slides) on Multicollinearity between moderators: "Natural empirical design": Many moderators show very high multicollinearity. Combine levels / moderators or drop them.This is due to natural co-occurrence of design factors: researcher conducting a meta-analysis can do little about it. Use regular statistics like VIF, GVIF
+* From Abraham Paper: As there is no direct test for multicollinearity in HLMs, we identified variables that were correlated with |r| > .5 (Eisend 2014).
+```{r, modcorrelations, echo = TRUE}
+modcordata <- select(meta_data, pubyear, within_subject, dv_measurement_type, preregistered, compensation,m_age, percntg_females, online, US, students, private_life, expert, ai_dummy, textual)
+head(modcordata)
+mc <- cor(modcordata, use = "pairwise.complete.obs", method = "spearman")
+cortable <- round(mc, 2)
+View(cortable)
+cor.test(modcordata$pubyear, modcordata$within_subject, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$pubyear, modcordata$dv_measurement_type, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$pubyear, modcordata$preregistered, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$pubyear, modcordata$compensation, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$pubyear, modcordata$m_age, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$pubyear, modcordata$percntg_females, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$pubyear, modcordata$online, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$pubyear, modcordata$US, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$pubyear, modcordata$students, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$pubyear, modcordata$private_life, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$pubyear, modcordata$expert, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$pubyear, modcordata$ai_dummy, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$pubyear, modcordata$textual, method = "spearman", exact = FALSE, na.action = na.rm)
+
+cor.test(modcordata$within_subject, modcordata$dv_measurement_type, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$within_subject, modcordata$preregistered, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$within_subject, modcordata$compensation, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$within_subject, modcordata$m_age, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$within_subject, modcordata$percntg_females, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$within_subject, modcordata$online, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$within_subject, modcordata$US, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$within_subject, modcordata$students, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$within_subject, modcordata$private_life, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$within_subject, modcordata$expert, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$within_subject, modcordata$ai_dummy, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$within_subject, modcordata$textual, method = "spearman", exact = FALSE, na.action = na.rm)
+
+cor.test(modcordata$dv_measurement_type, modcordata$preregistered, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$dv_measurement_type, modcordata$compensation, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$dv_measurement_type, modcordata$m_age, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$dv_measurement_type, modcordata$percntg_females, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$dv_measurement_type, modcordata$online, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$dv_measurement_type, modcordata$US, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$dv_measurement_type, modcordata$students, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$dv_measurement_type, modcordata$private_life, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$dv_measurement_type, modcordata$expert, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$dv_measurement_type, modcordata$ai_dummy, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$dv_measurement_type, modcordata$textual, method = "spearman", exact = FALSE, na.action = na.rm)
+
+cor.test(modcordata$preregistered, modcordata$compensation, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$preregistered, modcordata$m_age, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$preregistered, modcordata$percntg_females, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$preregistered, modcordata$online, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$preregistered, modcordata$US, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$preregistered, modcordata$students, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$preregistered, modcordata$private_life, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$preregistered, modcordata$expert, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$preregistered, modcordata$ai_dummy, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$preregistered, modcordata$textual, method = "spearman", exact = FALSE, na.action = na.rm)
+
+cor.test(modcordata$compensation, modcordata$m_age, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$compensation, modcordata$percntg_females, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$compensation, modcordata$online, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$compensation, modcordata$US, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$compensation, modcordata$students, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$compensation, modcordata$private_life, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$compensation, modcordata$expert, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$compensation, modcordata$ai_dummy, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$compensation, modcordata$textual, method = "spearman", exact = FALSE, na.action = na.rm)
+
+cor.test(modcordata$m_age, modcordata$percntg_females, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$m_age, modcordata$online, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$m_age, modcordata$US, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$m_age, modcordata$students, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$m_age, modcordata$private_life, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$m_age, modcordata$expert, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$m_age, modcordata$ai_dummy, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$m_age, modcordata$textual, method = "spearman", exact = FALSE, na.action = na.rm)
+
+cor.test(modcordata$percntg_females, modcordata$online, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$percntg_females, modcordata$US, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$percntg_females, modcordata$students, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$percntg_females, modcordata$private_life, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$percntg_females, modcordata$expert, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$percntg_females, modcordata$ai_dummy, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$percntg_females, modcordata$textual, method = "spearman", exact = FALSE, na.action = na.rm)
+
+cor.test(modcordata$online, modcordata$US, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$online, modcordata$students, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$online, modcordata$private_life, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$online, modcordata$expert, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$online, modcordata$ai_dummy, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$online, modcordata$textual, method = "spearman", exact = FALSE, na.action = na.rm)
+
+cor.test(modcordata$US, modcordata$students, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$US, modcordata$private_life, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$US, modcordata$expert, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$US, modcordata$ai_dummy, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$US, modcordata$textual, method = "spearman", exact = FALSE, na.action = na.rm)
+
+cor.test(modcordata$students, modcordata$private_life, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$students, modcordata$expert, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$students, modcordata$ai_dummy, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$students, modcordata$textual, method = "spearman", exact = FALSE, na.action = na.rm)
+
+cor.test(modcordata$private_life, modcordata$expert, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$private_life, modcordata$ai_dummy, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$private_life, modcordata$textual, method = "spearman", exact = FALSE, na.action = na.rm)
+
+cor.test(modcordata$expert, modcordata$ai_dummy, method = "spearman", exact = FALSE, na.action = na.rm)
+cor.test(modcordata$expert, modcordata$textual, method = "spearman", exact = FALSE, na.action = na.rm)
+
+cor.test(modcordata$ai_dummy, modcordata$textual, method = "spearman", exact = FALSE, na.action = na.rm)
+
+# library(xlsx)
+write.xlsx(cortable, file="cortable.xlsx")
+```
+
+# Meta-Analytic Modeling
+
+General Notes:
+
+* Goal: calculate  a summary (combined) intervention effect estimate.
+* The overall effect is calculated as a weighted average of the intervention effects estimated in the individual studies.
+* The bigger the weight given to a study, the more it will contribute to the weighted average. The weight that is used is usually a value reflecting the sampling accuracy of the effect size. If an effect size has good sampling accuracy (i.e., it is likely to be an accurate reflection of reality) then it is weighted highly, whereas effect sizes that are imprecise estimates are given less weight in the calculations. Typically, the weight used is the sample size or some function of it.
+* The standard error of the summary intervention effect can be used to derive a confidence interval, which communicates the precision (or uncertainty) of the summary estimate; and to derive a P value, which communicates the strength of the evidence against the null hypothesis of no intervention effect.
+* There are two ways to conceptualise meta-analysis: fixed effects and random effects models. 
+* The fixed-effect model assumes that studies in the meta-analysis are sampled from a population in which the average effect size is fixed. Put another way, sample effect sizes should be homogeneous because they come from the same population with a fixed average effect. 
+* The alternative assumption is that the avrage effect size in the population varies randomly from study to study: studies in a meta-analysis come from populations that have different average effect sizes, so, population effect sizes can be thought of as being samples from a superpopulation. Put another way, the effect sizes should be heterogeneous because they come from populations with varying average effect sizes.
+* Stats experts point out that there are rarely grounds to assume the fixed-effects case, so random effect models are preferred. 
+* In addition to yielding a summary quantification of the intervention effect, all methods of meta-analysis incorporate an assessment of whether the variation among the results of the separate studies is compatible with random variation, or whether it is large enough to indicate inconsistency of intervention effects across studies (heterogeneity). A formal test of this is the chi-squared test. It assesses whether observed differences in results are compatible with chance alone. A statistically significant result (P value below threshold or a large Chi2 statistic relative to its degree of freedom) provides evidence of heterogeneity. 
+* Despite the mere testing of whether heterogeneity is present, methods have been developed to estimate its impact on the meta-analysis: I2. 
+* I2 describes the percentage of the variability in effect estimates that is due to heterogeneity rather than sampling error (chance).
+* Thresholds for the interpretation of the I2 statistic:
+  * 0% to 40%: might not be important
+  * 30% to 60%: may represent moderate heterogeneity
+  * 50% to 90%: may represent substantial heterogeneity
+  * 75% to 100%: considerable heterogeneity
+* Types of Models: Random Effects Model, Mixed Effects Model, Multi-Level Random Effects Model
+
+<!-- # Random Effects Model -->
+<!-- ## 1. Without Moderators -->
+<!-- ### Model Output -->
+<!-- ```{r, metareg, echo = TRUE} -->
+<!-- ## Fit Meta-Regression Model without Moderators #### -->
+<!-- metareg_d_1 <- rma(cohens_d, vi=var_d, data = meta_data, method="REML") -->
+<!-- metareg_d_1 -->
+<!-- # reporter(metareg_d_1) -->
+<!-- ``` -->
+
+<!-- ```{r, metareg_confint, echo = TRUE} -->
+<!-- confint(metareg_d_1) -->
+<!-- ``` -->
+
+<!-- ###  Outlier Detection -->
+<!-- ```{r, metareg_II, include = FALSE} -->
+<!-- # Standardized residuals (observed residuals divided by the corresponding standard errors) -->
+<!-- standresid0 <- residuals(metareg_d_1, type="rstandard") -->
+
+<!-- # Cook's distance D for each observed effect size (change in beta if one observation is dropped) -->
+<!-- # Thresholds: D > 0.5 and > 1.0; D > 3*mean; D > 4/n; D > chisq(# regrcoeff, 0.50); any extreme D-value -->
+<!-- cookdist0 <- cooks.distance(metareg_d_1, progbar = TRUE, reestimate=FALSE) -->
+<!-- ``` -->
+
+<!-- ```{r, metareg_III, echo = TRUE, fig.align="center"} -->
+<!-- plot(standresid0, type="o", pch=19, xlab="Observed effect size", ylab="Standardized residual") -->
+<!-- plot(cookdist0, type="o", pch=19, xlab="Observed effect size", ylab="Cook's Distance") -->
+<!-- ``` -->
+
+<!-- ##  Forest Plot -->
+<!-- ```{r, forest, echo = TRUE, fig.align="center", fig.height=40, fig.width=10} -->
+<!-- ## Forest Plot #### -->
+<!-- meta_data$cohens_d_plot <- format(round(meta_data$cohens_d, 2), nsmall = 2) -->
+<!-- meta_data$cohens_d_plot <- as.numeric(meta_data$cohens_d_plot) -->
+
+<!-- meta_data$pubyear <- as.numeric(as.character(meta_data$pubyear)) -->
+<!-- forest(metareg_d_1, -->
+<!--        annotate = FALSE, -->
+<!--        addfit = TRUE, -->
+<!--        addpred = FALSE, -->
+<!--        showweights = FALSE, -->
+<!--        xlim=c(-10,1), # adjust horizontal plot region limits -->
+<!--        ilab=cbind(meta_data$pubyear, meta_data$study_no, meta_data$n, meta_data$cohens_d_plot), -->
+<!--        ilab.xpos=c(-5.40, -4.80, -4.30, -3.65), -->
+<!--        ilab.pos = 4, -->
+<!--        xlab = "Standardized Mean Difference", -->
+<!--        order="obs", -->
+<!--        header = TRUE,  -->
+<!--        slab = meta_data$authors_short) -->
+<!-- op <- par(cex=1, font=2) -->
+<!-- text(x = c(-5.40, -4.80, -4.30, -3.65), y = 213, label = c("Year","No.", "N", "d"), pos = 4) -->
+<!-- par(op) -->
+<!-- ``` -->
+
+## Funnel Plot (Raw Data)
+
+General Notes: 
+
+* Method to visually inspect the existence of a publication bias. 
+* Publication bias = selective reporting of significant results that distort meta-analytic estimates (Buecker et al. 2021). Often mentioned as the main criticism against meta-analysis BUT MA allows to identify and/or accommodate publication bias (Tammo Bijmolt Slides with sources)
+* A funnel plot is a simple scatter plot of the intervention effect estimates from individual studies against some measure of each study's size or precision.
+* Plot of sample size, precision (1/s.e.) or s.e. versus effect size
+* Reasoning: If the true effect size is non-zero, studies with small sample sizes (large s.e.) may still find non-significant, close-to-zero effects, which might not be published.
+* No publication bias: Mean effect size is the same for all sample sizes. Plot is symmetric, no empty spaces
+* Publication bias: Funnel plot is asymmetric 
+* If a funnel plot is asymmetric: can indicate publication bias. But this can also be due to other causes (moderators), small studies may have lower effect sizes because of other research methods, etc.
+* Option: Funnel plot based on the error term (instead of the effect size) after meta-regression.
+
+Interpretations: 
+
+* The funnel plot is slightly asymmetric, with a majority of the smaller studies clustering to the right of the mean. This might be evidence of bias but also a starting point for the assessment of moderators and a focus on meta-regression.
+
+```{r, funnel_woI, echo = TRUE, fig.align="center", fig.height=10, fig.width=11, warning=FALSE}
+funnel(as.numeric(meta_data$cohens_d), vi=as.numeric(meta_data$var_d), yaxis="sei", data = meta_data,
+       main = "Funnel Plot Raw Data", label = 5, offset=1, back = "lightgrey", pch = 20)
+```
+
+<!-- #### Formal Tests -->
+
+<!-- General notes: -->
+
+<!-- * File drawer test assessing how many zero effects would need to exist in file drawers to make the findings non-significant. Not measuring whether publication bias exists but how strong it would need to be (if existing) to make the results of meta-analytic calculations irrelevant. Resulting value is assessed regarding realism. Can there really be this many unpublished studies? Rosenthal suggests 5k + 10 as a threshold. Cons: ignores heterogeneity between studies and effect sizes (moderators) -->
+<!-- * Rank test of Begg and Mazumdar (1994): If there is a publication bias, small effect sizes with high -->
+<!-- sampling variances are missing, this should lead to a significant correlation between the ranking of the effect sizes and the sampling variances. -->
+<!-- * Egger test: If there is a Publication bias, the standard error (or precision, sample size) has a significant effect on the effect size in a metaregression (could also be done in the full meta-regression model including many moderators) -->
+<!-- * Trimm-and-fill method: How many effect sizes are missing and where to make the funnel plot symmetric? -->
+
+<!-- Interpretations:  -->
+
+<!-- * 260815 > 1065 --> 
+<!-- We can be pretty sure, that we have no problem with publication bias cause even if there was publication bias, the amount of unpublished work would need to be unrelaistically high to make results irrelevant. -->
+<!-- * The visual impression of the funnel plot is confirmed by the Rank test of Begg and Mazumdar (1994) which yields a statistically significant p-value. -->
+
+<!-- ```{r, formal, echo = TRUE, fig.align="center", fig.height=10, fig.width=11, warning=FALSE} -->
+<!-- ## Failsafe N #### -->
+<!-- fsn(cohens_d, vi=var_d, data = meta_data, type = "Rosenthal") -->
+
+<!-- # Threshold -->
+<!-- (5*211)+10 -->
+
+<!-- # Rank test of Begg and Mazumdar (1994) -->
+<!-- metareg_d_1 <- rma(cohens_d, vi=var_d, data = meta_data) -->
+<!-- funnel(metareg_d_1, main = "Funnel Plot of Random Effects Model without Moderators", label = 5, offset=1, back = "lightgrey", pch = 20) -->
+<!-- ranktest(metareg_d_1) -->
+
+<!-- # Trim-and-fill method -->
+<!-- trimfill(metareg_d_1, "left") -->
+<!-- trimfill(metareg_d_1, "right") -->
+<!-- taf <- trimfill(metareg_d_1, "left") -->
+<!-- funnel(taf, main = "Funnel Plot of Trim Filled Random Effects Model without Moderators", label = 5, offset=1, back = "lightgrey", pch = 20, pch.fill = 21) -->
+
+<!-- # Egger Test (Regress effect size on s.e. or precision) -->
+<!-- eggermodel_d_1 <- summary(lm(cohens_d ~ n, data = meta_data)) -->
+<!-- eggermodel_d_1 -->
+<!-- ``` -->
+
+<!-- ## 2. Including Moderators -> Meta Regression Model -->
+
+<!-- * Given there is variability in effect sizes, this variability can be explored in terms of moderator variables  -->
+
+<!-- ### Test of Moderators as Predictors Separately -->
+<!-- ```{r, modsind, include = FALSE, fig.align="center", fig.height=30, fig.width=10} -->
+<!-- # Publication Moderators -->
+<!-- outlet_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ outlet, data = meta_data, method="REML") -->
+<!-- discipline_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ discipline, data = meta_data, method="REML") -->
+<!-- pubyear_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ pubyear, data = meta_data, method="REML") -->
+<!-- pubtype_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ pubtype, data = meta_data, method="REML") -->
+<!-- published_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ published, data = meta_data, method="REML") -->
+
+<!-- # Method Moderators -->
+<!-- within_subject_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ within_subject, data = meta_data, method="REML") -->
+<!-- # random_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ random, data = meta_data, method="REML") -->
+<!-- field_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ field, data = meta_data, method="REML") -->
+<!-- dv_cat_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ dv_cat, data = meta_data, method="REML") -->
+<!-- subjective_perception_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ subjective_perception, data = meta_data, method="REML") -->
+<!-- dv_scaling_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ dv_scaling, data = meta_data, method="REML") -->
+<!-- dv_mt_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ dv_measurement_type, data = meta_data, method="REML") -->
+<!-- compensation_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ compensation, data = meta_data, method="REML") -->
+<!-- incentive_compatible_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ incentive_compatible, data = meta_data, method="REML") -->
+<!-- preregistered_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ preregistered, data = meta_data, method="REML") -->
+
+<!-- # Sample Moderators -->
+<!-- m_age_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ m_age, data = meta_data, method="REML") -->
+<!-- percntg_females_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ percntg_females, data = meta_data, method="REML") -->
+<!-- online_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ online, data = meta_data, method="REML") -->
+<!-- students_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ students, data = meta_data, method="REML") -->
+<!-- location_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ location, data = meta_data, method="REML") -->
+<!-- US_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ US, data = meta_data, method="REML") -->
+<!-- sample_type_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ sample_type, data = meta_data, method="REML") -->
+
+<!-- # Domain Moderator -->
+<!-- domain_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ domain, data = meta_data, method="REML") -->
+<!-- management_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ management, data = meta_data, method="REML") -->
+<!-- subj_vs_obj_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ subj_vs_obj, data = meta_data, method="REML") -->
+
+<!-- # Stimuli Moderators -->
+<!-- human_type_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ human_type, data = meta_data, method="REML") -->
+<!-- expert_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ expert, data = meta_data, method="REML") -->
+<!-- algorithm_dummy_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ algorithm_dummy, data = meta_data, method="REML") -->
+<!-- ai_dummy_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ ai_dummy, data = meta_data, method="REML") -->
+<!-- textual_model <- rma(cohens_d, vi = meta_data$var_d, mods = ~ textual, data = meta_data, method="REML") -->
+<!-- ``` -->
+
+<!-- #### Publication Moderators -->
+<!-- ```{r, modsindII, echo = TRUE} -->
+<!-- outlet_model -->
+<!-- discipline_model -->
+<!-- pubyear_model -->
+<!-- pubtype_model -->
+<!-- published_model -->
+<!-- ``` -->
+
+<!-- #### Method Moderators -->
+<!-- ```{r, modsindIII, echo = TRUE} -->
+<!-- within_subject_model -->
+<!-- # random_model -->
+<!-- field_model -->
+<!-- dv_cat_model -->
+<!-- subjective_perception_model -->
+<!-- dv_scaling_model -->
+<!-- dv_mt_model -->
+<!-- compensation_model -->
+<!-- incentive_compatible_model -->
+<!-- preregistered_model -->
+<!-- ``` -->
+
+<!-- #### Sample Moderators -->
+<!-- ```{r, modsindIV, echo = TRUE} -->
+<!-- m_age_model -->
+<!-- percntg_females_model -->
+<!-- online_model -->
+<!-- students_model -->
+<!-- location_model -->
+<!-- US_model -->
+<!-- sample_type_model -->
+<!-- ``` -->
+
+<!-- #### Domain Moderator -->
+<!-- ```{r, modsindV, echo = TRUE} -->
+<!-- domain_model -->
+<!-- management_model -->
+<!-- subj_vs_obj_model -->
+<!-- ``` -->
+
+<!-- #### Stimuli Moderators -->
+<!-- ```{r, modsindVI, echo = TRUE} -->
+<!-- human_type_model -->
+<!-- expert_model -->
+<!-- algorithm_dummy_model -->
+<!-- ai_dummy_model -->
+<!-- textual_model -->
+<!-- ``` -->
+
+<!-- <!-- ### All Potential Moderators --> 
+<!-- <!-- ```{r, modmodel, include = FALSE} --> 
+<!-- <!-- metareg_mod1 <- rma(cohens_d, vi = meta_data$var_d, mods = ~ outlet + discipline + pubyear + pubtype + published + within_subject + random + field + dv_cat + subjective_perception + dv_scaling + dv_measurement_type + compensation + incentive_compatible + preregistered + m_age +  percntg_females + online + students + location + US + sample_type + domain + management + human_type + expert + algorithm_dummy + ai_dummy + textual, data = meta_data, method="REML") --> 
+
+<!-- <!-- table_metareg_mod1 <- xtable(coef(summary(metareg_mod1))) -->
+<!-- <!-- table_metareg_mod1 <- round(table_metareg_mod1, digits = 4) -->
+<!-- <!-- write.table(table_metareg_mod1, sep = ";") -->
+<!-- <!-- confint(metareg_mod1) -->
+<!-- <!-- ``` -->
+
+<!-- <!-- ```{r, modmodelII, echo = TRUE} -->
+<!-- <!-- metareg_mod1 -->
+<!-- <!-- ``` -->
+
+<!-- <!-- ```{r, modfunnel, echo = TRUE, fig.align="center", fig.height=10, fig.width=10, warning=FALSE} -->
+<!-- <!-- funnel(metareg_mod1, vi=meta_data$var_d, yaxis="sei", refline=0, -->
+<!-- <!--        level=c(80, 90, 99), shade=c("white", "gray", "darkgray"), main -->
+<!-- <!--        = "Random-Effects Model including Moderator Variables") -->
+<!-- <!-- ``` -->
+
+<!-- ### Model Variants -->
+<!-- #### Model 1: Individually significant & non-redundant moderators as predictors -->
+
+<!-- * Funnel plot after meta-regression (to assess publication bias while controling for moderators): -->
+<!--   * Horizontal axis = residual of the ES, not ES itself -->
+<!--   * symmetric or (still) asymmetric? -->
+<!--   * Do moderators account for the asymmetry? -->
+
+<!-- ```{r, modmodel1_I, include = FALSE} -->
+<!-- metareg_mod1 <- rma(cohens_d, vi = meta_data$var_d, mods = ~ pubyear + dv_measurement_type + incentive_compatible + domain + expert + ai_dummy, data = meta_data, method="REML") -->
+<!-- metareg_mod1 -->
+
+<!-- table_metareg_mod1 <- xtable(coef(summary(metareg_mod1))) -->
+<!-- table_metareg_mod1 <- round(table_metareg_mod1, digits = 4) -->
+<!-- write.table(table_metareg_mod1, sep = ";") -->
+<!-- confint(metareg_mod1) -->
+<!-- ``` -->
+
+<!-- ```{r, modmodel1_II, echo = TRUE} -->
+<!-- metareg_mod1 -->
+<!-- ``` -->
+
+<!-- ```{r, modfunnel1_III, echo = TRUE, fig.align="center", fig.height=10, fig.width=10, warning=FALSE} -->
+<!-- funnel(metareg_mod1, vi=meta_data$var_d, yaxis="sei", label = 5, offset=1, back = "lightgrey", pch = 20) -->
+<!-- ``` -->
+
+<!-- ```{r, model1outlier, include = FALSE} -->
+<!-- # Standardized residuals (observed residuals divided by the corresponding standard errors) -->
+<!-- standresid0a <- residuals(metareg_mod1, type="rstandard") -->
+
+<!-- # Cook's distance D for each observed effect size (change in beta if one observation is dropped) -->
+<!-- # Thresholds: D > 0.5 and > 1.0; D > 3*mean; D > 4/n; D > chisq(# regrcoeff, 0.50); any extreme D-value -->
+<!-- cookdist0a <- cooks.distance(metareg_mod1, progbar = TRUE, reestimate=FALSE) -->
+<!-- ``` -->
+
+<!-- ```{r, model1outlierII, echo = TRUE, fig.align="center"} -->
+<!-- plot(standresid0a, type="o", pch=19, xlab="Observed effect size", ylab="Standardized residual") -->
+<!-- plot(cookdist0a, type="o", pch=19, xlab="Observed effect size", ylab="Cook's Distance") -->
+<!-- ``` -->
+
+<!-- ```{r, mod1_corcheck, include = FALSE, fig.align="center", fig.height=10, fig.width=10, warning=FALSE} -->
+<!-- moderators1 <- meta_data %>% -->
+<!--   select(pubyear, dv_measurement_type, incentive_compatible, domain, expert, ai_dummy) -->
+
+<!-- moderators1[1:ncol(moderators1)] <- lapply(moderators1[1:ncol(moderators1)], as.factor) -->
+<!-- moderators1$pubyear <- as.numeric(moderators1$pubyear) -->
+<!-- sapply(moderators1, is.factor) -->
+
+<!-- correlations1 <- model.matrix(~0+., data=moderators1) %>%  -->
+<!--   cor(use="pairwise.complete.obs") %>%  -->
+<!--   ggcorrplot(show.diag = F, type="lower", lab=TRUE, lab_size=2) -->
+<!-- ``` -->
+
+<!-- ```{r, mod1_corcheck1, echo = TRUE, fig.align="center", fig.height=10, fig.width=10, warning=FALSE} -->
+<!-- correlations1 -->
+<!-- ``` -->
+
+<!-- #### Model 2: Conceptually most interesting moderators as predictors -->
+<!-- ```{r, modmodel2_I, include = FALSE} -->
+<!-- metareg_mod2 <- rma(cohens_d, vi = meta_data$var_d, mods = ~ pubyear + within_subject + field + dv_measurement_type + incentive_compatible + preregistered + m_age +  percntg_females + online + US + management + expert + ai_dummy + textual, data = meta_data, method="REML") -->
+
+<!-- table_metareg_mod2 <- xtable(coef(summary(metareg_mod2))) -->
+<!-- table_metareg_mod2 <- round(table_metareg_mod2, digits = 4) -->
+<!-- write.table(table_metareg_mod2, file = "table_metareg_mod2.txt", sep = ";", quote = F, row.names = T) -->
+<!-- confint(metareg_mod2) -->
+<!-- ``` -->
+
+<!-- ```{r, modmodel2_II, echo = TRUE} -->
+<!-- metareg_mod2 -->
+<!-- ``` -->
+
+<!-- ```{r, modfunnel2_III, echo = TRUE, fig.align="center", fig.height=10, fig.width=10, warning=FALSE} -->
+<!-- funnel(metareg_mod2, vi=meta_data$var_d, yaxis="sei", label = 5, offset=1, back = "lightgrey", pch = 20, main -->
+<!--        = "Random-Effects Model including Moderator Variables") -->
+<!-- ``` -->
+
+<!-- ```{r, mod2_corcheck, include = FALSE, fig.align="center", fig.height=10, fig.width=10, warning=FALSE} -->
+<!-- moderators2 <- meta_data %>% -->
+<!--   select(pubyear, within_subject, field, dv_measurement_type, incentive_compatible, preregistered, m_age,  percntg_females, online, US, management, expert, ai_dummy, textual) -->
+
+<!-- moderators2[1:ncol(moderators2)] <- lapply(moderators2[1:ncol(moderators2)], as.factor) -->
+<!-- moderators2$pubyear <- as.numeric(moderators2$pubyear) -->
+<!-- moderators2$m_age <- as.numeric(moderators2$m_age) -->
+<!-- moderators2$percntg_females <- as.numeric(moderators2$percntg_females) -->
+<!-- sapply(moderators2, is.factor) -->
+
+<!-- correlations2 <- model.matrix(~0+., data=moderators2) %>%  -->
+<!--   cor(use="pairwise.complete.obs") %>%  -->
+<!--   ggcorrplot(show.diag = F, type="lower", lab=TRUE, lab_size=2) -->
+<!-- ``` -->
+
+<!-- ```{r, mod2_corcheck2, echo = TRUE, fig.align="center", fig.height=10, fig.width=10, warning=FALSE} -->
+<!-- correlations2 -->
+<!-- ``` -->
+
+<!-- #### Model 3: Conceptually most interesting moderators as predictors (Within-subject excluded) -->
+<!-- ```{r, modmodel3_I, include = FALSE} -->
+<!-- metareg_mod3 <- rma(cohens_d, vi = meta_data$var_d, mods = ~ pubyear + field + dv_measurement_type + incentive_compatible + preregistered + m_age +  percntg_females + online + US + management + expert + ai_dummy + textual, data = meta_data, method="REML") -->
+
+<!-- table_metareg_mod3 <- xtable(coef(summary(metareg_mod3))) -->
+<!-- table_metareg_mod3 <- round(table_metareg_mod3, digits = 4) -->
+<!-- write.table(table_metareg_mod3, file = "table_metareg_mod3.txt", sep = ";", quote = F, row.names = T) -->
+<!-- confint(metareg_mod3) -->
+<!-- ``` -->
+
+<!-- ```{r, modmodel3_II, echo = TRUE} -->
+<!-- metareg_mod3 -->
+<!-- ``` -->
+
+<!-- ```{r, modfunnel3_III, echo = TRUE, fig.align="center", fig.height=10, fig.width=10, warning=FALSE} -->
+<!-- funnel(metareg_mod3, vi=meta_data$var_d, yaxis="sei", label = 5, offset=1, back = "lightgrey", pch = 20, main -->
+<!--        = "Random-Effects Model including Moderator Variables") -->
+<!-- ``` -->
+
+<!-- ```{r, mod3_corcheck, include = FALSE, fig.align="center", fig.height=10, fig.width=10, warning=FALSE} -->
+<!-- moderators3 <- meta_data %>% -->
+<!--   select(pubyear, field, dv_measurement_type, incentive_compatible, preregistered, m_age,  percntg_females, online, US, management, expert, ai_dummy, textual) -->
+
+<!-- moderators3[1:ncol(moderators3)] <- lapply(moderators3[1:ncol(moderators3)], as.factor) -->
+<!-- moderators3$pubyear <- as.numeric(moderators3$pubyear) -->
+<!-- moderators3$m_age <- as.numeric(moderators3$m_age) -->
+<!-- moderators3$percntg_females <- as.numeric(moderators3$percntg_females) -->
+<!-- sapply(moderators3, is.factor) -->
+
+<!-- correlations3 <- model.matrix(~0+., data=moderators3) %>%  -->
+<!--   cor(use="pairwise.complete.obs") %>%  -->
+<!--   ggcorrplot(show.diag = F, type="lower", lab=TRUE, lab_size=2) -->
+<!-- ``` -->
+
+<!-- ```{r, mod3_corcheck3, echo = TRUE, fig.align="center", fig.height=10, fig.width=10, warning=FALSE} -->
+<!-- correlations3 -->
+<!-- ``` -->
+
+<!-- #### Model 4: Predictors are variables with significantly different factor levels -->
+<!-- ```{r, modmodel4_I, include = FALSE} -->
+<!-- metareg_mod4 <- rma(cohens_d, vi = meta_data$var_d, mods = ~ dv_measurement_type + expert + ai_dummy, data = meta_data, method="REML") -->
+
+<!-- table_metareg_mod4 <- xtable(coef(summary(metareg_mod4))) -->
+<!-- table_metareg_mod4 <- round(table_metareg_mod4, digits = 4) -->
+<!-- write.table(table_metareg_mod4, file = "table_metareg_mod4.txt", sep = ";", quote = F, row.names = T) -->
+<!-- confint(metareg_mod4) -->
+<!-- ``` -->
+
+<!-- ```{r, modmodel4_II, echo = TRUE} -->
+<!-- metareg_mod4 -->
+<!-- ``` -->
+
+<!-- ```{r, modfunnel4_III, echo = TRUE, fig.align="center", fig.height=10, fig.width=10, warning=FALSE} -->
+<!-- funnel(metareg_mod4, vi=meta_data$var_d, yaxis="sei", label = 5, offset=1, back = "lightgrey", pch = 20, main -->
+<!--        = "Random-Effects Model including Moderator Variables") -->
+<!-- ``` -->
+
+<!-- ```{r, mod4_corcheck, include = FALSE, fig.align="center", fig.height=10, fig.width=10, warning=FALSE} -->
+<!-- moderators4 <- meta_data %>% -->
+<!--   select(dv_measurement_type, expert, ai_dummy) -->
+
+<!-- moderators4[1:ncol(moderators4)] <- lapply(moderators4[1:ncol(moderators4)], as.factor) -->
+<!-- sapply(moderators4, is.factor) -->
+
+<!-- correlations4 <- model.matrix(~0+., data=moderators4) %>%  -->
+<!--   cor(use="pairwise.complete.obs") %>%  -->
+<!--   ggcorrplot(show.diag = F, type="lower", lab=TRUE, lab_size=2) -->
+<!-- ``` -->
+
+<!-- ```{r, mod4_corcheck4, echo = TRUE, fig.align="center", fig.height=10, fig.width=10, warning=FALSE} -->
+<!-- correlations4 -->
+<!-- ``` -->
+
+## Multi-Level Random-Effects Meta-Regression Model
+
+General Notes:
+
+* Two steps in the HLM meta-regression:
+  * 1. Variance components model, no explanatory variable at any level (moderators); only an intercept
+  * 2. Model(-s) with explanatory variables (moderators)
+
+### 1. Variance Components Model (Model Without Moderators)
+#### Model Output
+
+General Notes:
+
+* Model output includes 
+  * Overall weighted average effect size 
+  * Variance components per level
+    * Variance between studies (level-2 units) 
+    * Variance within studies (level-1 units)
+    * From these we can compute intra-class-correlation: 
+      * Proportion of the total variance that is between studies 
+      * Formula: Between-study Variation / Total Variation
+      * If result is non-zero or even close to 1: larger variance at the higher level; which makes Multi-Level modeling more essential compared to regular OLS.
+      
+Interpretations: 
+
+* We have an intra-class-correlation of 0.24 --> non-zero --> multi-level modelling is essential 
+
+```{r, multi_I, echo = TRUE}
+# Estimates Multi-level random-effects meta-regression model, without moderators
+multilevel <- rma.mv(cohens_d, var_d, random = ~ 1 |
+study_id/es_id, data = meta_data, method="ML")
+multilevel
+
+# intra-class correlation
+(0.0782)/(0.0782+0.2523)
+```
+
+#### Outlier Detection
+```{r, multi_III, include = FALSE}
+# Standardized residuals (observed residuals divided by the corresponding standard errors)
+standresid1 <- residuals(multilevel, type="rstandard")
+
+# Cook's distance D for each observed effect size (change in beta if one observation is dropped)
+# Thresholds: D > 0.5 and > 1.0; D > 3*mean; D > 4/n; D > chisq(# regrcoeff, 0.50); any extreme D-value
+cookdist1 <- cooks.distance(multilevel, progbar = TRUE, reestimate=FALSE)
+```
+
+* Standardized residuals (observed residuals divided by the corresponding standard errors)
+```{r, multi_IV, echo = TRUE, fig.align="center"}
+plot(standresid1, type="o", pch=19, xlab="Observed effect size", ylab="Standardized residual")
+```
+
+* Cook's distance D for each observed effect size (change in beta if one observation is dropped)
+  * Thresholds: D > 0.5 and > 1.0; D > 3*mean; D > 4/n; D > chisq(# regrcoeff, 0.50); any extreme D-value
+* Studies 190 and 164 seem most influential 
+* 190 = Luo et al. (2019), Frontiers: Machines vs. humans: The impact of artificial intelligence chatbot disclosure on customer purchases, marketing science
+* 164 = Banker & Khetani (2019), Algorithm overdependence: How the use of algorithmic recommendation systems can increase risks to consumer well-being, Journal of Public Policy & Marketing
+```{r, multi_VI, echo = TRUE, fig.align="center"}
+plot(cookdist1, type="o", pch=19, xlab="Observed effect size", ylab="Cook's Distance")
+
+# Fran's Code
+cookdist2 <- data.frame("Observed_effect_size" = as.numeric(names(cookdist1)), "Cook_distance" = cookdist1)
+
+cookdist2$authors <- NA
+cookdist2$authors[164] <- "Banker & Khetani (2019)"
+cookdist2$authors[190] <- "Luo, Tong, Fang, & Qu (2019)"
+
+library(ggrepel)
+cooksd <- ggplot(cookdist2, aes(Observed_effect_size, Cook_distance))+
+  geom_point() + geom_line() + 
+  geom_hline(yintercept=0.05, linetype = "dashed") +
+  labs(x = "Study-ID", y = "Cook's Distance")+ 
+  theme_clean(base_size = 12) +
+  scale_x_continuous(breaks=seq(0,250,50)) +
+  geom_text_repel(aes(label = authors),  position = position_nudge_repel(x = -20, y = 0.0005))
+
+library(Cairo)
+setwd(dirname(rstudioapi::getActiveDocumentContext()$path))
+library(Cairo)
+ggsave(filename = "cooksd_plot.png",
+       plot = cooksd, dpi = 1000, width=6, height=5, type = "cairo")
+
+```
+
+#### Forest Plot
+
+* Meta-analyses are usually illustrated using a forest plot.
+* A forest plot displays effect estimates and confidence intervals for both individual studies and meta-analyses.
+* Each study is represented by a block at the point estimate of intervention effect with a horizontal line extending either side of the block. 
+* The area of the block indicates the weight assigned to that study in the meta-analysis while the horizontal line depicts the confidence interval (usually with a 95% level of confidence). 
+* The area of the block and the confidence interval convey similar information, but both make different contributions to the graphic. 
+* The confidence interval depicts the range of intervention effects compatible with the study's result. 
+* The size of the block draws the eye towards the studies with larger weight (usually those with narrower confidence intervals), which dominate the calculation of the summary result, presented as a diamond at the bottom.
+* If confidence intervals for the results of individual studies (generally depicted graphically using horizontal lines) have poor overlap, this generally indicates the presence of statistical heterogeneity.
+
+```{r, forest, echo = TRUE, fig.align="center", fig.height=40, fig.width=10}
+## Forest Plot ####
+meta_data$cohens_d_plot <- format(round(meta_data$cohens_d, 2), nsmall = 2)
+meta_data$cohens_d_plot <- as.numeric(meta_data$cohens_d_plot)
+
+meta_data$pubyear <- as.numeric(as.character(meta_data$pubyear))
+forest(multilevel,
+       annotate = FALSE,
+       addfit = TRUE,
+       addpred = FALSE,
+       showweights = FALSE,
+       xlim=c(-10,1), # adjust horizontal plot region limits
+       ilab=cbind(meta_data$pubyear, meta_data$study_no, meta_data$n, meta_data$cohens_d_plot),
+       ilab.xpos=c(-5.40, -4.80, -4.30, -3.65),
+       ilab.pos = 4,
+       xlab = "Standardized Mean Difference",
+       order="obs",
+       header = TRUE, 
+       slab = meta_data$authors_short)
+op <- par(cex=1, font=2)
+text(x = c(-5.40, -4.80, -4.30, -3.65), y = 213, label = c("Year","No.", "N", "d"), pos = 4)
+par(op)
+
+# Caterpillar Plot
+forest(multilevel,
+       xlim=c(-3,2), # adjust horizontal plot region limits
+       order="obs", # order by size of yi
+       slab=NA, annotate=FALSE, # remove study labels and annotations
+       efac=0, # remove vertical bars at end of CIs
+       pch=19, # changing point symbol to filled circle
+       col="gray40", # change color of points/CIs
+       psize=2, # increase point size
+       cex.lab=1, cex.axis=1, # increase size of x-axis title/labels
+       xlab = "Effect Size (Cohen's d)",
+       lty=c("solid","blank")) # remove horizontal line at top of plot
+
+# Forestplot
+newdata <- meta_data[order(meta_data$cohens_d_plot),]
+newdata <- newdata[c(seq(1:20),seq(nrow(meta_data) - 20 + 1, nrow(meta_data))),]
+
+multilevel <- rma.mv(cohens_d, var_d, random = ~ 1 |
+study_id/es_id, data = newdata, method="ML")
+multilevel
+
+newdata$pubyear <- as.numeric(as.character(newdata$pubyear))
+forest(multilevel,
+       annotate = FALSE,
+       addfit = FALSE,
+       addpred = FALSE,
+       showweights = FALSE,
+       xlim=c(-10,1), # adjust horizontal plot region limits
+       ilab=cbind(newdata$pubyear, newdata$study_no, newdata$n, newdata$cohens_d_plot),
+       ilab.xpos=c(-5.40, -4.80, -4.30, -3.65),
+       ilab.pos = 4,
+       xlab = "Standardized Mean Difference",
+       order="obs",
+       header = TRUE, 
+       slab = newdata$authors_short)
+op <- par(cex=0.82, font=2)
+text(x = c(-5.40, -4.80, -4.30, -3.65), y = 4, label = c("Year","No.", "N", "d"), pos = 4)
+par(op)
+
+newdata$pubyear <- as.numeric(as.character(newdata$pubyear))
+forest(multilevel,
+       annotate = FALSE,
+       addfit = FALSE,
+       addpred = FALSE,
+       showweights = FALSE,
+       xlim=c(-5,2), # adjust horizontal plot region limits
+       xlab = "Standardized Mean Difference",
+       order="obs",
+       header = TRUE,
+       slab = newdata$authors_short)
+op <- par(cex=0.82, font=2)
+text(x = c(-5.40, -4.80, -4.30, -3.65), y = 4, label = c("Year","No.", "N", "d"), pos = 4)
+par(op)
+```
+
+#### Funnel Plot
+
+```{r, multi_II, echo = TRUE, fig.align="center"}
+funnel(multilevel, yaxis = "sei", main = "Funnel Plot Multi-level Random-Effects Model", label = 5, offset=1, back = "lightgrey", pch = 20)
+
+funnel(multilevel, yaxis = "sei", main = "", offset=1, back = "white", pch = 20)
+```
+
+#### Formal Tests of Publication Bias
+
+* File drawer test assessing how many zero effects would need to exist in file drawers to make the findings non-significant. Not measuring whether publication bias exists but how strong it would need to be (if existing) to make the results of meta-analytic calculations irrelevant. Resulting value is assessed regarding realism. Can there really be this many unpublished studies? Rosenthal suggests 5k + 10 as a threshold. Cons: ignores heterogeneity between studies and effect sizes (moderators)
+* Rank test of Begg and Mazumdar (1994): If there is a publication bias, small effect sizes with high
+sampling variances are missing, this should lead to a significant correlation between the ranking of the effect sizes and the sampling variances.
+* Egger test: If there is a Publication bias, the standard error (or precision, sample size) has a significant effect on the effect size in a metaregression (could also be done in the full meta-regression model including many moderators)
+* Trimm-and-fill method: How many effect sizes are missing and where to make the funnel plot symmetric?
+
+Interpretations:
+
+* 261326 > 1065 --> We can be pretty sure, that we have no problem with publication bias cause even if there was publication bias, the amount of unpublished work would need to be unrelaistically high to make results irrelevant.
+* The visual impression of the funnel plot is confirmed by the Rank test of Begg and Mazumdar (1994) which yields a statistically significant p-value.
+* However: Egger Test does not point toward publication bias
+
+```{r, formal, echo = TRUE, fig.align="center", fig.height=10, fig.width=11, warning=FALSE}
+## Failsafe N ####
+fsn(cohens_d, vi=var_d, data = meta_data, type = "Rosenthal")
+
+# Threshold
+(5*211)+10
+
+# Rank test of Begg and Mazumdar (1994)
+ranktest(multilevel)
+
+# Egger Test (Regress effect size on s.e. or precision)
+eggermodel_d_1 <- summary(lm(cohens_d ~ n, data = meta_data))
+eggermodel_d_1
+```
+
+### 2. Including Moderators
+#### Test of Moderators as Predictors Separately
+
+* Pubyear (+, *)
+* DV Scaling - Discrete (+, **)
+* DV Measurement Type - Self report (-, **)
+* Incentive Compatible - Yes (+, .)
+* US - Yes (+, **)
+* Management - Yes (+, *)
+* Subjective vs- Objective - Objective (+, *)
+* Severity - Medium (-, **)
+* Severity - High (-, ***)
+* Human Label - Expert (-, ***)
+* Algorithm Label - Yes (+. *)
+* Artificial Intelligence Label - Yes (+, .)
+
+```{r, modsind, include = FALSE, fig.align="center", fig.height=30, fig.width=10}
+# Publication Moderators
+outlet_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ outlet, data = meta_data, method="ML")
+discipline_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ discipline, data = meta_data, method="ML")
+pubyear_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ pubyear, data = meta_data, method="ML")
+pubtype_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ pubtype, data = meta_data, method="ML")
+published_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ published, data = meta_data, method="ML")
+
+# Method Moderators
+within_subject_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ within_subject, data = meta_data, method="ML")
+field_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ field, data = meta_data, method="ML")
+dv_cat_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ dv_cat, data = meta_data, method="ML")
+subjective_perception_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ subjective_perception, data = meta_data, method="ML")
+dv_scaling_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ dv_scaling, data = meta_data, method="ML")
+dv_mt_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ dv_measurement_type, data = meta_data, method="ML")
+compensation_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ compensation, data = meta_data, method="ML")
+incentive_compatible_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ incentive_compatible, data = meta_data, method="ML")
+preregistered_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ preregistered, data = meta_data, method="ML")
+
+# Sample Moderators
+m_age_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ m_age, data = meta_data, method="ML")
+percntg_females_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ percntg_females, data = meta_data, method="ML")
+online_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ online, data = meta_data, method="ML")
+students_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ students, data = meta_data, method="ML")
+location_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ location, data = meta_data, method="ML")
+US_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ US, data = meta_data, method="ML")
+sample_type_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ sample_type, data = meta_data, method="ML")
+
+# Domain Moderator
+domain_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ domain, data = meta_data, method="ML")
+management_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ management, data = meta_data, method="ML")
+subj_vs_obj_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ subj_vs_obj, data = meta_data, method="ML")
+severity_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ severity, data = meta_data, method="ML")
+
+# Stimuli Moderators
+human_type_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ human_type, data = meta_data, method="ML")
+expert_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ expert, data = meta_data, method="ML")
+algorithm_dummy_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ algorithm_dummy, data = meta_data, method="ML")
+ai_dummy_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ ai_dummy, data = meta_data, method="ML")
+textual_model <- rma.mv(cohens_d, var_d, random = ~ 1 | study_id/es_id, mods = ~ textual, data = meta_data, method="ML")
+```
+
+###### Publication Moderators
+```{r, modsindII, echo = TRUE}
+outlet_model
+discipline_model
+pubyear_model
+pubtype_model
+published_model
+```
+
+###### Method Moderators
+```{r, modsindIII, echo = TRUE}
+within_subject_model
+# random_model
+field_model
+dv_cat_model
+subjective_perception_model
+dv_scaling_model
+dv_mt_model
+compensation_model
+incentive_compatible_model
+preregistered_model
+```
+
+###### Sample Moderators
+```{r, modsindIV, echo = TRUE}
+m_age_model
+percntg_females_model
+online_model
+students_model
+location_model
+US_model
+sample_type_model
+```
+
+###### Domain Moderator
+```{r, modsindV, echo = TRUE}
+domain_model
+management_model
+subj_vs_obj_model
+severity_model
+```
+
+###### Stimuli Moderators
+```{r, modsindVI, echo = TRUE}
+human_type_model
+expert_model
+algorithm_dummy_model
+ai_dummy_model
+textual_model
+```
+
+### Multi-level random-effects meta-regression model with moderators
+
+
+```{r, multi_VII, include = FALSE}
+# Estimation: Multi-level random-effects meta-regression model with moderators
+# Including moderators that seem conceptually most interesting minus those < 30 (ACR)
+multilevelmodel <- rma.mv(cohens_d, var_d, random = ~ 1 |
+study_id/es_id, mods = ~ pubyear + within_subject + dv_measurement_type + preregistered + m_age +  percntg_females + online + US + private_life + expert + ai_dummy + textual, data = meta_data, method="ML")
+multilevelmodel
+
+# Alternative specifications
+# risk instead of management 
+multilevel1 <- rma.mv(cohens_d, var_d, random = ~ 1 |
+study_id/es_id, mods = ~ pubyear + within_subject + dv_measurement_type + preregistered + m_age +  percntg_females + online + US + risk + expert + ai_dummy + textual, data = meta_data, method="ML")
+multilevel1
+
+multilevel2 <- rma.mv(cohens_d, var_d, random = ~ 1 |
+study_id/es_id, mods = ~ dv_measurement_type + subj_vs_obj + expert + ai_dummy + US, data = meta_data, method="ML")
+multilevel2
+
+# Severity instead of management
+multilevel3 <- rma.mv(cohens_d, var_d, random = ~ 1 |
+study_id/es_id, mods = ~ pubyear + within_subject + dv_measurement_type + preregistered + m_age +  percntg_females + online + US + severity + expert + ai_dummy + textual, data = meta_data, method="ML")
+multilevel3
+
+# hedonic instead of management 
+multilevel4 <- rma.mv(cohens_d, var_d, random = ~ 1 |
+study_id/es_id, mods = ~ pubyear + within_subject + dv_measurement_type + preregistered + m_age +  percntg_females + online + US + hedonic + expert + ai_dummy + textual, data = meta_data, method="ML")
+multilevel4
+```
+
+#### Model Output
+```{r, mm2, echo = TRUE, fig.align="center"}
+multilevelmodel
+funnel(multilevelmodel, yaxis = "sei", main = "Funnel Plot Multi-level Random-Effects Model Including Moderators", label = 5, offset=1, back = "lightgrey", pch = 20)
+```
+
+#### Predictor Correlations
+
+* Tammo Bijmolt (in his slides) on Multicollinearity between moderators: "Natural empirical design": Many moderators show very high multicollinearity. Combine levels / moderators or drop them.This is due to natural co-occurrence of design factors: researcher conducting a meta-analysis can do little about it. Use regular statistics like VIF, GVIF
+* From Abraham Paper: As there is no direct test for multicollinearity in HLMs, we identified variables that were correlated with |r| > .5 (Eisend 2014).
+```{r, correlations, echo = TRUE}
+cordata <- select(meta_data, pubyear, within_subject, dv_measurement_type, preregistered, m_age, percntg_females, online, US, management, expert, ai_dummy, textual)
+head(cordata)
+res <- cor(cordata, use = "complete.obs", method = "spearman")
+round(res, 2)
+library(corrplot)
+corrplot(res, type = "upper", method = "number", 
+         tl.col = "black", tl.srt = 45)
+
+library("PerformanceAnalytics")
+chart.Correlation(cordata, histogram=TRUE, pch=19)
+```
+
+#### Outlier Detection
+```{r, multi_IX, echo = TRUE}
+# Standardized residuals (observed residuals divided by the corresponding standard errors)
+standresid <- residuals(multilevel, type="rstandard")
+
+# Cook's distance D for each observed effect size (change in beta if one observation is dropped)
+# Thresholds: D > 0.5 and > 1.0; D > 3*mean; D > 4/n; D > chisq(# regrcoeff, 0.50); any extreme D-value
+cookdist <- cooks.distance(multilevel, progbar = TRUE, reestimate=FALSE)
+```
+
+```{r, multi_X, include = FALSE, fig.align="center"}
+plot(standresid, type="o", pch=19, xlab="Observed effect size", ylab="Standardized residual")
+plot(cookdist, type="o", pch=19, xlab="Observed effect size", ylab="Cook's Distance")
+```
+
+```{r, pca, include = FALSE, fig.align="center"}
+# PCA
+# Step 1: Re-code Variables to Numeric
+meta_data$pubyear
+meta_data$pubyear <- as.numeric(as.character(meta_data$pubyear))
+meta_data$pubyear
+
+meta_data$published
+meta_data$published <- as.factor(dplyr::recode(meta_data$published, yes = 1, no = -1))
+meta_data$published
+
+meta_data$within_subject
+meta_data$within_subject <- as.factor(dplyr::recode(meta_data$within_subject, yes = 1, no = -1))
+meta_data$within_subject
+
+meta_data$field
+meta_data$field <- as.factor(dplyr::recode(meta_data$field, yes = 1, no = -1))
+meta_data$field
+
+meta_data$subjective_perception
+meta_data$subjective_perception <- as.factor(dplyr::recode(meta_data$subjective_perception, yes = 1, no = -1))
+meta_data$subjective_perception
+
+meta_data$dv_scaling
+meta_data$dv_scaling <- as.factor(dplyr::recode(meta_data$dv_scaling, continuous = 1, discrete = -1))
+meta_data$dv_scaling
+
+meta_data$dv_measurement_type
+meta_data$dv_measurement_type  <- as.factor(dplyr::recode(meta_data$dv_measurement_type, behavioral = 1, "self-report" = -1))
+meta_data$dv_measurement_type
+
+meta_data$dv_cat
+meta_data$dv_cat  <- as.factor(dplyr::recode(meta_data$dv_cat, "real outcome" = 3, "hypothetical outcome" = 2, "subjective perception" = 1))
+meta_data$dv_cat
+
+meta_data$compensation
+meta_data$compensation  <- as.factor(dplyr::recode(meta_data$compensation, yes = 1, no = -1))
+meta_data$compensation
+
+meta_data$incentive_compatible  <- as.factor(dplyr::recode(meta_data$incentive_compatible, yes = 1, no = -1))
+meta_data$incentive_compatible
+
+meta_data$preregistered
+meta_data$preregistered  <- as.factor(dplyr::recode(meta_data$preregistered, yes = 1, no = -1))
+meta_data$preregistered
+
+meta_data$m_age <- as.numeric(as.character(meta_data$m_age))
+meta_data$m_age
+summary(meta_data$m_age)
+meta_data$m_age <- tidyr::replace_na(meta_data$m_age, 35.17)
+meta_data$m_age
+
+meta_data$percntg_females <- as.numeric(as.character(meta_data$percntg_females))
+meta_data$percntg_females
+summary(meta_data$percntg_females)
+meta_data$percntg_females <- tidyr::replace_na(meta_data$percntg_females, 51.89)
+meta_data$percntg_females
+
+meta_data$online
+meta_data$online  <- as.factor(dplyr::recode(meta_data$online, yes = 1, no = -1))
+meta_data$online <- as.numeric(as.character(meta_data$online))
+meta_data$online <- tidyr::replace_na(meta_data$online, 0)
+meta_data$online <- as.factor(meta_data$online)
+meta_data$online
+
+meta_data$students
+meta_data$students  <- as.factor(dplyr::recode(meta_data$students, yes = 1, no = -1))
+meta_data$students <- as.numeric(as.character(meta_data$students))
+meta_data$students <- tidyr::replace_na(meta_data$students, 0)
+meta_data$students <- as.factor(meta_data$students)
+meta_data$students
+
+meta_data$US
+meta_data$US <- as.factor(dplyr::recode(meta_data$US, yes = 1, no = -1))
+meta_data$US <- as.numeric(as.character(meta_data$US))
+meta_data$US <- tidyr::replace_na(meta_data$US, 0)
+meta_data$US <- as.factor(meta_data$US)
+meta_data$US
+
+meta_data$severity
+meta_data$severity <- as.factor(dplyr::recode(meta_data$severity, low = 1, medium = 2, high = 3))
+meta_data$severity <- as.numeric(as.character(meta_data$severity))
+meta_data$severity <- tidyr::replace_na(meta_data$severity, 0)
+meta_data$severity <- as.factor(meta_data$severity)
+meta_data$severity
+
+meta_data$management
+
+meta_data$subj_vs_obj
+meta_data$subj_vs_obj  <- as.factor(dplyr::recode(meta_data$subj_vs_obj, subjective = 1, objective = -1))
+meta_data$subj_vs_obj <- as.numeric(as.character(meta_data$subj_vs_obj))
+meta_data$subj_vs_obj <- tidyr::replace_na(meta_data$subj_vs_obj, 0)
+meta_data$subj_vs_obj <- as.factor(meta_data$subj_vs_obj)
+meta_data$subj_vs_obj
+
+meta_data$expert
+meta_data$expert  <- as.factor(dplyr::recode(meta_data$expert, yes = 1, no = -1))
+meta_data$expert
+
+meta_data$algorithm_dummy
+meta_data$algorithm_dummy  <- as.factor(dplyr::recode(meta_data$algorithm_dummy, yes = 1, no = -1))
+meta_data$algorithm_dummy
+
+meta_data$ai_dummy
+meta_data$ai_dummy  <- as.factor(dplyr::recode(meta_data$ai_dummy, yes = 1, no = -1))
+meta_data$ai_dummy
+
+meta_data$textual
+meta_data$textual  <- as.factor(dplyr::recode(meta_data$textual, yes = 1, no = -1))
+meta_data$textual
+
+meta_data$pubyear <- as.numeric(as.character(meta_data$pubyear))
+meta_data$published <- as.numeric(as.character(meta_data$published))
+meta_data$within_subject <- as.numeric(as.character(meta_data$within_subject))
+meta_data$field <- as.numeric(as.character(meta_data$field))
+meta_data$subjective_perception <- as.numeric(as.character(meta_data$subjective_perception))
+meta_data$dv_scaling <- as.numeric(as.character(meta_data$dv_scaling))
+meta_data$dv_measurement_type <- as.numeric(as.character(meta_data$dv_measurement_type))
+meta_data$dv_cat <- as.numeric(as.character(meta_data$dv_cat))
+meta_data$compensation <- as.numeric(as.character(meta_data$compensation))
+meta_data$incentive_compatible <- as.numeric(as.character(meta_data$incentive_compatible))
+meta_data$preregistered <- as.numeric(as.character(meta_data$preregistered))
+meta_data$m_age <- as.numeric(as.character(meta_data$m_age))
+meta_data$percntg_females <- as.numeric(as.character(meta_data$percntg_females))
+meta_data$online <- as.numeric(as.character(meta_data$online))
+meta_data$students <- as.numeric(as.character(meta_data$students))
+meta_data$US <- as.numeric(as.character(meta_data$US))
+meta_data$severity <- as.numeric(as.character(meta_data$severity))
+meta_data$management <- as.numeric(as.character(meta_data$management))
+meta_data$subj_vs_obj <- as.numeric(as.character(meta_data$subj_vs_obj))
+meta_data$expert <- as.numeric(as.character(meta_data$expert))
+meta_data$algorithm_dummy <- as.numeric(as.character(meta_data$algorithm_dummy))
+meta_data$ai_dummy <- as.numeric(as.character(meta_data$ai_dummy))
+meta_data$textual <- as.numeric(as.character(meta_data$textual))
+```
+
+
+```{r, pcaII, include = FALSE, fig.align="center"}
+# Step 2: Create Subset with PCA Data
+pca_dat <- dplyr::select(meta_data,
+                         aversion,
+                         pubyear,
+                         published,
+                         within_subject,
+                         field,
+                         subjective_perception,
+                         dv_scaling,
+                         dv_measurement_type,
+                         dv_cat,
+                         compensation,
+                         incentive_compatible,
+                         preregistered,
+                         m_age,
+                         percntg_females,
+                         online,
+                         students,
+                         US,
+                         management,
+                         severity,
+                         subj_vs_obj,
+                         expert,
+                         algorithm_dummy,
+                         ai_dummy,
+                         textual)
+
+# Step 3: Identify ambiguous variables
+which(colnames(pca_dat) == "dv_scaling")
+which(colnames(pca_dat) == "preregistered")
+which(colnames(pca_dat) == "US")
+which(colnames(pca_dat) == "management")
+which(colnames(pca_dat) == "percntg_females")
+which(colnames(pca_dat) == "expert")
+which(colnames(pca_dat) == "dv_cat")
+
+which(colnames(pca_dat) == "subjective_perception")
+which(colnames(pca_dat) == "incentive_compatible")
+
+test <- rma.mv(cohens_d, var_d, random = ~ 1 |
+study_id/es_id, mods = ~ pubyear + published + within_subject + field + dv_measurement_type + compensation + m_age +  online + students + severity + subj_vs_obj + algorithm_dummy + ai_dummy + textual, data = meta_data, method="ML")
+test
+
+# Step 4: PCA
+res.pca <- prcomp(pca_dat[,-c(1,7,12,17,18,14,21,9,6,11)], scale = TRUE, center = TRUE, retx = TRUE, rank = 5)
+print(res.pca)
+summary(res.pca)
+library("factoextra")
+get_eigenvalue(res.pca) # eigenvalues
+fviz_eig(res.pca) # screeplot
+res.var <- get_pca_var(res.pca) # variable results
+print(res.var) 
+res.var$cor # correlations between variables and dimensions
+res.var$contrib # contributions of variables to the PCs
+library(corrplot)
+corrplot(res.var$contrib, is.corr=FALSE) # contribution plot
+fviz_pca_var(res.pca, # variable correlation plot
+             col.var = "contrib", # Color by contributions to the PC
+             gradient.cols = c("grey","red"),
+             repel = TRUE     # Avoid text overlapping
+             )
+res.pca$rotation[,1:5] # PCA rotation is the matrix of eigenvectors
+pca5 <- res.pca$x[,1:5] # PCA rotation is the matrix of eigenvectors
+pca5
+pca5_scores <- as.data.frame(pca5)
+meta_data_pca5 <- cbind(meta_data, pca5_scores)
+
+# Step 5: Varimax 
+# https://stats.stackexchange.com/questions/59213/how-to-compute-varimax-rotated-principal-components-in-r
+pca_meta_rotated <- psych::principal(pca_dat[,-c(1,7,12,17,18,14,21,9,6,11)], rotate="varimax", nfactors=3, scores=TRUE)
+varimax5 <- pca_meta_rotated$scores
+varimax5_scores <- as.data.frame(varimax5)
+meta_data_pca5 <- cbind(meta_data_pca5, varimax5_scores)
+
+# Step 6: Oblimin 
+pca_meta_rotated <- psych::principal(pca_dat[,-c(1,7,12,17,18,14,21,9,6,11)], rotate="oblimin", nfactors=2, scores=TRUE)
+oblimin5 <- pca_meta_rotated$scores
+oblimin5_scores <- as.data.frame(oblimin5)
+meta_data_pca5 <- cbind(meta_data_pca5, oblimin5_scores)
+
+# Step 7: Models
+# PCA
+multilevel_pca5 <- rma.mv(cohens_d, var_d, random = ~ 1 |
+study_id/es_id, mods = ~ PC1 + PC2 + PC3 + PC4 + PC5, data = meta_data_pca5, method="ML")
+multilevel_pca5
+
+# Varimax
+multilevel_pca5 <- rma.mv(cohens_d, var_d, random = ~ 1 |
+study_id/es_id, mods = ~ RC1 + RC2 + RC3, data = meta_data_pca5, method="ML")
+multilevel_pca5
+
+# Oblimin
+multilevel_pca5 <- rma.mv(cohens_d, var_d, random = ~ 1 |
+study_id/es_id, mods = ~ TC1 + TC2, data = meta_data_pca5, method="ML")
+multilevel_pca5
+
+```
+
+```{r data, include = FALSE}
+# # Export Shortened Dataset
+# meta_data_pca5 <- dplyr::select(meta_data_pca5, authors_short, study_no, aversion, pubyear, published, within_subject, field, subjective_perception, dv_scaling, dv_measurement_type, dv_cat, compensation, incentive_compatible, preregistered, m_age, percntg_females, online, students, US, management, severity, subj_vs_obj, expert, algorithm_dummy, ai_dummy, textual, PC1, PC2, PC3, PC4, PC5, cohens_d)
+# library(xlsx)
+# write.xlsx(meta_data_pca5, file="meta_data_pca5.xlsx")
+```

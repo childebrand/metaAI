@@ -5,6 +5,6 @@ theme: just-the-docs
 url: https://childebrand.github.io/metaAI
 
 aux_links: # remove if you don't want this link to appear on your pages
-  Template Repository: https://github.com/childebrand/metaAI
+  GitHub Repository: https://github.com/childebrand/metaAI
 
 
