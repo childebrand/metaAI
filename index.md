@@ -42,12 +42,15 @@ We welcome contributions from researchers studying AI resistance & acceptance! Y
 If you use our data or code, please cite:
 
 ```bibtex
-@article{
+@article{zehnle2025meta,
   title={Not All AI Is Created Equal: A Meta-Analysis Revealing Drivers of AI Resistance Across Markets, Methods, and Time},
-  author={Zehnle, Hildebrand, Valenzuela},
+  author={Zehnle, Meike and Hildebrand, Christian and Valenzuela, Ana},
+  journal={International Journal of Research in Marketing},
   year={2025},
-  journal={...},
-  doi={...}
+  volume={xx},
+  number={xx},
+  pages={xx},
+  doi={10.xxxx/xxxxx}
 }
 ```
 
