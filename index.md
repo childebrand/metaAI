@@ -4,13 +4,13 @@ layout: home
 nav_order: 1
 ---
 
-# Welcome to Our Meta-Analysis Repository on Resitance to AI
+# Welcome Our Meta Analysis Online Repository
 
 This repository contains data and analysis code for the paper:
 
 > Zehnle, Hildebrand, Valenzuela (2025): "Not All AI Is Created Equal: A Meta-Analysis Revealing Drivers of AI Resistance Across Markets, Methods, and Time", International Journal of Research in Marketing, Forthcoming.
 
-[📄 Read the Paper](https://doi.org/PAPER_DOI) | [📊 View Interactive Results](results.html) | [📥 Download Data](data/data.csv)
+[📄 Read the Paper](https://doi.org/PAPER_DOI) | [📊 View Interactive Results](https://childebrand.github.io/metaAI/explore.html) | [📥 Download Data](https://childebrand.github.io/metaAI/data.html)
 
 ## Project Overview
 
