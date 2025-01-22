@@ -4,7 +4,7 @@ layout: home
 nav_order: 1
 ---
 
-# Welcome Our Meta Analysis Online Repository
+# Welcome To Our Meta-Analysis Online Repository
 
 This repository contains data and analysis code for the paper:
 
@@ -55,7 +55,3 @@ If you use our data or code, please cite:
 
 For questions about the meta-analysis or this repository, please contact:
 - [Christian Hildebrand](mailto:christian.hildebrand@unisg.ch)
-
-## License
-
-This project is licensed under [CC BY 4.0](LICENSE.md)
