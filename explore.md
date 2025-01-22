@@ -1,5 +1,5 @@
 ---
-title: Data
+title: Explore
 layout: home
 nav_order: 2
 ---

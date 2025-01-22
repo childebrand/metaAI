@@ -1,7 +1,7 @@
 ---
 title: Living Meta-Analysis
 layout: home
-nav_order: 4
+nav_order: 5
 ---
 
 # AI Meta-Analysis Data Submission
