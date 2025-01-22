@@ -4,42 +4,42 @@ layout: home
 nav_order: 3
 ---
 
-# Meta-Analysis Dataset 📊
+# Meta-Analysis Dataset 
 
-Download our complete dataset of AI resistance effects across markets:
+Download our complete dataset of AI resistance effects:
 
 [📥 Download data.xlsx](meta_docs/data.xlsx) 
 
 ## Dataset Overview
 
 The dataset contains:
-- 🔢 Effect sizes and variances
-- 📚 Study characteristics
-- 🏢 Market categories
+- 🤖 Effect sizes and standard errors for AI labels / types, AI Characteristics
+- 📚 Study characteristics (e.g., participant pool, incentive compatibility, etc.)
+- 🏢 Application domains (e.g., finance, healthcare, transporation, etc.)
 - 📅 Study periods
-- 🤖 AI system types
 
-Each row represents one effect size, with columns following the [PRISMA-IPD](http://prisma-statement.org/Extensions/IndividualPatientData) reporting guidelines.
+Each row represents one effect size, with columns following the [PRISMA-IPD](http://prisma-statement.org) reporting guidelines.
 
 ## Data Dictionary
 
-Key variables:
+Important variables:
 ```r
 names(data)
-[1] "study_id"      # Unique identifier for each study
-[2] "effect_size"   # Hedges' g
-[3] "variance"      # Effect size variance
-[4] "market_type"   # B2C, B2B, or mixed
-[5] "ai_type"       # Type of AI system studied
-[6] "sample_size"   # Total sample size
-[7] "year"          # Publication year
+[1] "study_id"         # Unique identifier for each study
+[2] "es_id"            # Effect size ID 
+[3] "cohens_d"         # All effect sizes converted to Cohen's d
+[4] "ai_terminology"   # How AI was described to participants
+[5] "m_human"          # Arithmetic mean of human condition
+[6] "m_ai"             # Arithmetic mean of AI condition
+[7] "final_study_n"    # Total sample size
+[8] "pubyear"          # Publication year
 ```
 
 Please cite our paper when using this dataset:
 ```bibtex
-@article{childebrand2025ai,
+@article{
   title={Not All AI Is Created Equal: A Meta-Analysis Revealing Drivers of AI Resistance Across Markets, Methods, and Time},
-  author={Childebrand, et al.},
+  author={Zehnle, Hildebrand, Valenzuela},
   year={2025}
 }
 ```

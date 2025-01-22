@@ -7,17 +7,18 @@ layout: home
 # Download Meta Analysis R Code
 
 This repository contains the complete R Markdown file used for our meta-analysis on AI resistance across markets. The file includes all data preprocessing steps, effect size calculations, and visualizations presented in the paper.
-Getting Started
-Download the R Markdown file below to reproduce our analysis:
 
-## 📥 Download metaanalysis.Rmd
+##Getting Started
+Download the R Markdown file(s) below to reproduce our analyses:
+
+## 📥 Download Code
 The R Markdown file contains main set of analyses, including comments explaining the code and main insights of each analysis.
 
-Download the file here:
+Analysis Code: [📥 Download metaanalysis.Rmd](meta_docs/metaanalysis.Rmd) 
+All Data Visualizations: [📥 Download metaanalysis_plots.Rmd](meta_docs/metaanalysis_plots.Rmd) 
 
-
-### Number of Effect Sizes by Authors
-```{r s_by_authors_I, include=FALSE}
+### Exemplary Sample Code (here: Number of Effect Sizes by Authors)
+```r 
 authors_plotdata <- meta_data %>%
         group_by(authors_short) %>%
         dplyr::summarize(n = n()) %>% 
