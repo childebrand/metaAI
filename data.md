@@ -37,10 +37,15 @@ names(data)
 
 Please cite our paper when using this dataset:
 ```bibtex
-@article{
+@article{zehnle2025meta,
   title={Not All AI Is Created Equal: A Meta-Analysis Revealing Drivers of AI Resistance Across Markets, Methods, and Time},
-  author={Zehnle, Hildebrand, Valenzuela},
-  year={2025}
+  author={Zehnle, Meike and Hildebrand, Christian and Valenzuela, Ana},
+  journal={International Journal of Research in Marketing},
+  year={2025},
+  volume={xx},
+  number={xx},
+  pages={xx},
+  doi={10.xxxx/xxxxx}
 }
 ```
 
