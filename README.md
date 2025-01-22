@@ -19,4 +19,4 @@ Repository for "Not All AI Is Created Equal: A Meta-Analysis Revealing Drivers o
 }
 ```
 
-Questions? [Open an issue](issues) or contact [christian.hildebrand@unisg.ch](mailto:christian.hildebrand@unisg.ch)
+Shoot me an email at [christian.hildebrand@unisg.ch](mailto:christian.hildebrand@unisg.ch) if you have any questions or suggestions!
