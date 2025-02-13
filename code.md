@@ -16,25 +16,6 @@ The R Markdown file contains all main analyses presented in our meta-analysis.
 
 - Analysis Code: [📥 Download metaanalysis.Rmd](meta_docs/metaanalysis.Rmd) 
 
-### Exemplary Sample Code (here: Number of Effect Sizes by Authors)
-```r 
-authors_plotdata <- meta_data %>%
-        group_by(authors_short) %>%
-        dplyr::summarize(n = n()) %>% 
-        dplyr::mutate(pct = n/sum(n),
-                      lbl = scales::percent(pct)) %>% 
-        arrange(desc(pct))
-
-authors_plotdata$authors_short <- as.factor(authors_plotdata$authors_short)
-plot_by_authors <- ggplot(authors_plotdata, aes(x = reorder(authors_short, n), y = n)) +
-        geom_bar(stat = "identity")+
-        geom_text(aes(label = n, hjust = -0.1))+
-        coord_flip()+
-        theme_bw()+
-        labs(x = "", y ="")
-```
-
-
 ### Exemplary Sample Code (here: comparison of effect sizes across ai label categories)
 ```r 
 ai_robots <- metafor::rma.mv(cohens_d, variance_d, mods = ~ relevel(factor(ai_label), ref = 'ai robots'), data = df, random = ~ 1 | article_id/es_id, tdist = TRUE, btt = 2:4)
