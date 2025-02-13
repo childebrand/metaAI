@@ -20,7 +20,7 @@ Repository for "Not All AI Is Created Equal: A Meta-Analysis Revealing Drivers o
   volume={xx},
   number={xx},
   pages={xx},
-  doi={10.xxxx/xxxxx}
+  doi={https://doi.org/10.1016/j.ijresmar.2025.02.005}
 }
 ```
 

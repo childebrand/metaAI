@@ -43,7 +43,7 @@ Please cite our paper when using this dataset:
   volume={xx},
   number={xx},
   pages={xx},
-  doi={10.xxxx/xxxxx}
+  doi={https://doi.org/10.1016/j.ijresmar.2025.02.005}
 }
 ```
 
