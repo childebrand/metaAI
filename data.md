@@ -8,7 +8,7 @@ nav_order: 3
 
 Download our complete dataset of AI resistance effects:
 
-[📥 Download data.xlsx](meta_docs/data.xlsx) 
+[📥 Download metaanalysis_data.csv](meta_docs/metaanalysis_data.csv) 
 
 ## Dataset Overview
 
@@ -25,14 +25,12 @@ Each row represents one effect size, with columns following the [PRISMA-IPD](htt
 Important variables:
 ```r
 names(data)
-[1] "study_id"         # Unique identifier for each study
-[2] "es_id"            # Effect size ID 
+[1] "es_id"            # Effect size ID 
+[2] "ai_label"         # How AI was described to participants
 [3] "cohens_d"         # All effect sizes converted to Cohen's d
-[4] "ai_terminology"   # How AI was described to participants
-[5] "m_human"          # Arithmetic mean of human condition
-[6] "m_ai"             # Arithmetic mean of AI condition
-[7] "final_study_n"    # Total sample size
-[8] "pubyear"          # Publication year
+[4] "p_value"          # Exact p-values reported where possible
+[5] "n"                # Total sample size of a study
+[6] "n1 / n2"          # Number of observations / samples per condition
 ```
 
 Please cite our paper when using this dataset:
